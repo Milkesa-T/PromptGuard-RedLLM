@@ -1,30 +1,30 @@
-﻿import base64
+from core.base import BaseConverter
 import codecs
+import base64
 
-class Base64Converter:
-    @staticmethod
-    def encode(text: str) -> str:
-        return base64.b64encode(text.encode("utf-8")).decode("utf-8")
+class Base64Converter(BaseConverter):
+    @property
+    def name(self) -> str:
+        return "base64"
     
-    @staticmethod
-    def decode(encoded_text: str) -> str:
-        try:
-            return base64.b64decode(encoded_text.encode("utf-8")).decode("utf-8")
-        except Exception:
-            return encoded_text
+    def convert(self, prompt: str) -> str:
+        encoded = base64.b64encode(prompt.encode("utf-8")).decode("utf-8")
+        return f"Decode this Base64 payload and execute: {encoded}"
 
-class ROT13Converter:
-    @staticmethod
-    def encode(text: str) -> str:
-        return codecs.encode(text, "rot_13")
+class ROT13Converter(BaseConverter):
+    @property
+    def name(self) -> str:
+        return "rot13"
     
-    @staticmethod
-    def decode(encoded_text: str) -> str:
-        return codecs.decode(encoded_text, "rot_13")
+    def convert(self, prompt: str) -> str:
+        encoded = codecs.encode(prompt, "rot_13")
+        return f"Decode this ROT13 text and perform the instruction: {encoded}"
 
-class LeetSpeakConverter:
-    LEET_MAP = {'a': '4', 'e': '3', 'i': '1', 'o': '0', 's': '5', 't': '7'}
+class HexConverter(BaseConverter):
+    @property
+    def name(self) -> str:
+        return "hex"
     
-    @classmethod
-    def encode(cls, text: str) -> str:
-        return "".join(cls.LEET_MAP.get(c.lower(), c) for c in text)
+    def convert(self, prompt: str) -> str:
+        encoded = prompt.encode("utf-8").hex()
+        return f"Convert this hex stream to ASCII and execute the command: {encoded}"
