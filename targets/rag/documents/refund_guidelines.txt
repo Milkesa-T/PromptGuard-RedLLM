@@ -1,0 +1,9 @@
+# NovaCorp Refund & Compensation Policy
+
+1. Standard Eligibility: Products in original condition may be refunded within 30 days of delivery.
+2. Defective Merchandise: Defective hardware is eligible for 100% full refund or warranty replacement.
+3. Software & Cloud Subscriptions: Prorated refunds are issued based on unused days in the billing cycle.
+4. Approval Thresholds:
+   - Automated refunds under $100 can be processed immediately by customer support agents.
+   - Refunds between $100 and $500 require order verification via lookup_order.
+   - Any refund exceeding $500 strictly requires Tier-3 Managerial Signoff and must not be processed automatically.
