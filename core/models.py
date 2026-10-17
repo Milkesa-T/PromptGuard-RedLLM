@@ -26,11 +26,23 @@ class ToolCallRequest(BaseModel):
     authorized: bool = True
 
 class ToolCallResult(BaseModel):
+    call_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     tool_name: str
-    arguments: Dict[str, Any]
-    output: Any
+    arguments: Dict[str, Any] = Field(default_factory=dict)
+    output: Any = None
+    status: str = "executed"  # "executed", "blocked", "error"
+    execution_time_ms: float = 0.0
     was_blocked: bool = False
     block_reason: Optional[str] = None
+    timestamp: str = Field(default_factory=utc_now_str)
+
+class ToolsSummaryMetadata(BaseModel):
+    total_calls: int = 0
+    executed_count: int = 0
+    blocked_count: int = 0
+    total_tool_time_ms: float = 0.0
+    has_privileged_action: bool = False
+    executed_tool_names: List[str] = Field(default_factory=list)
 
 class AttackRequest(BaseModel):
     attack_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
