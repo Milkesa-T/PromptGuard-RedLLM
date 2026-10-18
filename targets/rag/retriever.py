@@ -143,26 +143,35 @@ class RAGRetriever(Retriever):
     ):
         super().__init__(embedder=embedder, chunk_filter=chunk_filter)
         
-        # Locate knowledge base directory: prioritize data/docs, then targets/rag/documents
         project_root = Path(__file__).resolve().parent.parent.parent
         data_docs = project_root / "data" / "docs"
         targets_docs = Path(__file__).resolve().parent / "documents"
 
+        self.documents_dirs: List[Path] = []
         if documents_dir is not None:
+            self.documents_dirs = [Path(documents_dir)]
             self.documents_dir = Path(documents_dir)
-        elif data_docs.exists() and any(data_docs.glob("*.md")):
-            self.documents_dir = data_docs
-        elif targets_docs.exists():
-            self.documents_dir = targets_docs
         else:
-            self.documents_dir = data_docs
+            dirs = []
+            if targets_docs.exists():
+                dirs.append(targets_docs)
+            if data_docs.exists() and any(data_docs.glob("*.md")):
+                dirs.append(data_docs)
+            self.documents_dirs = dirs
+            self.documents_dir = dirs[0] if dirs else targets_docs
 
         self.chunker = DocumentChunker(chunk_size=300, chunk_overlap=40)
         self._load_and_index()
 
     def _load_and_index(self):
-        """Load and index all documents from the documents directory."""
-        if self.documents_dir.exists():
-            all_chunks = self.chunker.chunk_directory(self.documents_dir)
-            if all_chunks:
-                self.index(all_chunks)
+        """Load and index all documents from the configured document directories."""
+        all_chunks: List[Dict[str, Any]] = []
+        for d in self.documents_dirs:
+            if d.exists():
+                chunks = self.chunker.chunk_directory(d)
+                if chunks:
+                    all_chunks.extend(chunks)
+        if all_chunks:
+            for idx, c in enumerate(all_chunks):
+                c["chunk_index"] = idx
+            self.index(all_chunks)

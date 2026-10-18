@@ -8,6 +8,8 @@ from typing import Optional, List, Dict, Any
 from targets.vulnerable_agent.agent import VulnerableSupportAgent
 from targets.vulnerable_agent.tools import AVAILABLE_TOOLS_SCHEMA, reset_mock_database
 from promptguard.firewall import PromptGuardFirewall
+from promptguard.output_guards.tool_policy_guard import ToolExecutionPolicyGuard
+from core.models import ToolsSummaryMetadata
 from database.db import AuditDatabase
 
 router = APIRouter(prefix="/api", tags=["Agent & RAG Sandbox"])
@@ -30,7 +32,7 @@ class RAGSearchRequest(BaseModel):
 async def chat_with_agent(req: AgentChatRequest):
     """
     Interactive chat turn with the NovaSupport AI Agent.
-    Executes RAG context retrieval, promptguard inspection (if enabled), and tool calling.
+    Executes RAG context retrieval, promptguard inspection (if enabled), and tool calling with rich execution metadata.
     """
     start_time = time.time()
     timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
@@ -63,12 +65,17 @@ async def chat_with_agent(req: AgentChatRequest):
                 "detected_ciphers": guard_res.detected_ciphers,
                 "response": bot_text,
                 "tools_executed": [],
+                "tools_summary": ToolsSummaryMetadata().model_dump(),
                 "retrieved_chunks": [],
                 "latency_ms": round(latency, 2)
             }
 
-    # 2. Agent Execution with RAG & Tools
-    bot_text, tools_executed, retrieved_chunks = agent.handle_message(req.message)
+    # 2. Agent Execution with RAG & Tool Execution with Policy Guard
+    bot_text, tools_executed, retrieved_chunks, tools_summary = agent.handle_message(
+        req.message,
+        enable_policy_guard=req.enable_promptguard,
+        return_summary=True
+    )
 
     # 3. PromptGuard Output Guard (Canary token leakage check)
     if req.enable_promptguard:
@@ -78,7 +85,7 @@ async def chat_with_agent(req: AgentChatRequest):
     latency = (time.time() - start_time) * 1000.0
     tools_data = [t.model_dump() for t in tools_executed]
 
-    # 4. Log interaction to SQLite
+    # 4. Log interaction with rich tool execution metadata to SQLite
     db.log_agent_interaction(
         interaction_id=interaction_id,
         session_id=req.session_id,
@@ -96,14 +103,22 @@ async def chat_with_agent(req: AgentChatRequest):
         "blocked": False,
         "response": bot_text,
         "tools_executed": tools_data,
+        "tools_summary": tools_summary.model_dump(),
         "retrieved_chunks": retrieved_chunks,
         "latency_ms": round(latency, 2)
     }
 
 @router.get("/agent/tools")
 async def list_available_tools():
-    """List all available tools and function schemas configured on the agent."""
-    return {"tools": AVAILABLE_TOOLS_SCHEMA}
+    """List all available tools, function schemas, and active security policy thresholds."""
+    return {
+        "tools": AVAILABLE_TOOLS_SCHEMA,
+        "security_policy": {
+            "max_refund_limit": ToolExecutionPolicyGuard.MAX_REFUND_LIMIT,
+            "forbidden_sql_operations": ToolExecutionPolicyGuard.FORBIDDEN_SQL_OPERATIONS,
+            "privileged_tools": ["process_refund", "execute_internal_query", "update_account_email"]
+        }
+    }
 
 @router.post("/agent/reset")
 async def reset_agent_session():
@@ -116,7 +131,7 @@ async def reset_agent_session():
 async def list_rag_documents():
     """List loaded RAG documents and chunk counts."""
     if agent.rag:
-        doc_names = list({c["doc_name"] for c in agent.rag.chunks})
+        doc_names = list({c.get("doc_name") or c.get("source") for c in agent.rag.chunks if (c.get("doc_name") or c.get("source"))})
         return {
             "total_chunks": len(agent.rag.chunks),
             "documents": doc_names

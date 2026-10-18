@@ -134,8 +134,49 @@ class DocumentChunker:
         )
 
     def chunk_text(self, text: str, doc_name: str = "document") -> List[Dict[str, Any]]:
-        """Alias for chunk_document."""
-        return self.chunk_document(text=text, source=doc_name)
+        """Split a string of text into overlapping chunks, supporting structural or character chunking."""
+        text_clean = text.strip()
+        if not text_clean:
+            return []
+
+        # If structural markdown headings are present, use structural chunk_document
+        if re.search(r'^#{1,6}\s+', text_clean, re.MULTILINE):
+            chunks = self.chunk_document(text=text_clean, source=doc_name)
+            for c in chunks:
+                c["doc_name"] = doc_name
+            return chunks
+
+        # Character sliding window chunking for raw text (backwards compatible with test_rag.py)
+        if len(text_clean) > self.chunk_size:
+            chunks = []
+            start = 0
+            chunk_idx = 0
+            step = max(1, self.chunk_size - self.chunk_overlap)
+            while start < len(text_clean):
+                end = min(len(text_clean), start + self.chunk_size)
+                chunk_content = text_clean[start:end].strip()
+                if chunk_content:
+                    chunks.append({
+                        "id": f"{doc_name}_{chunk_idx}",
+                        "chunk_id": f"{doc_name}_{chunk_idx}",
+                        "doc_name": doc_name,
+                        "source": doc_name,
+                        "text": chunk_content,
+                        "heading": "",
+                        "chunk_index": chunk_idx,
+                        "start_char": start,
+                        "end_char": end,
+                    })
+                    chunk_idx += 1
+                if end >= len(text_clean):
+                    break
+                start += step
+            return chunks
+
+        chunks = self.chunk_document(text=text_clean, source=doc_name)
+        for c in chunks:
+            c["doc_name"] = doc_name
+        return chunks
 
     def chunk_file(self, file_path: Path | str) -> List[Dict[str, Any]]:
         """Read a file and chunk its contents."""
@@ -149,7 +190,10 @@ class DocumentChunker:
         except Exception:
             return []
 
-        return self.chunk_document(text=content, source=p.name)
+        chunks = self.chunk_document(text=content, source=p.name)
+        for c in chunks:
+            c["doc_name"] = p.name
+        return chunks
 
     def chunk_directory(self, dir_path: Path | str) -> List[Dict[str, Any]]:
         """Chunk all .md and .txt files in a directory."""
@@ -166,5 +210,6 @@ class DocumentChunker:
         for idx, chunk in enumerate(all_chunks):
             chunk["chunk_index"] = idx
             chunk["id"] = f"{chunk['source']}_{idx}"
+            chunk["doc_name"] = chunk["source"]
 
         return all_chunks
