@@ -73,7 +73,8 @@ async def chat_with_agent(req: AgentChatRequest):
     # 2. Agent Execution with RAG & Tool Execution with Policy Guard
     bot_text, tools_executed, retrieved_chunks, tools_summary = agent.handle_message(
         req.message,
-        enable_policy_guard=req.enable_promptguard
+        enable_policy_guard=req.enable_promptguard,
+        return_summary=True
     )
 
     # 3. PromptGuard Output Guard (Canary token leakage check)
@@ -130,7 +131,7 @@ async def reset_agent_session():
 async def list_rag_documents():
     """List loaded RAG documents and chunk counts."""
     if agent.rag:
-        doc_names = list({c["doc_name"] for c in agent.rag.chunks})
+        doc_names = list({c.get("doc_name") or c.get("source") for c in agent.rag.chunks if (c.get("doc_name") or c.get("source"))})
         return {
             "total_chunks": len(agent.rag.chunks),
             "documents": doc_names
