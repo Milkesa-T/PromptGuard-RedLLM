@@ -52,58 +52,141 @@
           <p class="text-muted" id="page-desc">Real-time red-teaming metrics, firewall efficacy & audit telemetry.</p>
         </div>
         <div class="topbar-actions">
-          <button id="btn-refresh-stats" class="btn btn-secondary">🔄 Refresh</button>
+          <div class="live-stream-status">
+            <span class="pulse-dot" id="live-stream-pulse"></span>
+            <label class="toggle-label-inline">
+              <input type="checkbox" id="toggle-auto-refresh" />
+              <span>Live Auto-Refresh (5s)</span>
+            </label>
+          </div>
+          <button id="btn-refresh-stats" class="btn btn-secondary" title="Fetch latest telemetry stats and audit records">🔄 Refresh</button>
+          <button id="btn-download-csv" class="btn btn-secondary" title="Export full security audit trail to CSV">📥 Download CSV</button>
           <button id="btn-run-benchmark" class="btn btn-primary">⚡ Run Full Benchmark</button>
         </div>
       </header>
 
       <!-- TAB 1: DASHBOARD -->
       <section id="tab-dashboard" class="tab-pane active">
-        <!-- KPI Metrics Grid -->
+        <!-- 4 Dark-Mode KPI Cards -->
         <div class="kpi-grid">
-          <div class="kpi-card">
-            <span class="kpi-label">Total Attacks Tested</span>
+          <!-- KPI 1: Total Attacks -->
+          <div class="kpi-card accent-cyan">
+            <div class="kpi-card-header">
+              <span class="kpi-label">Total Attacks Tested</span>
+              <span class="kpi-icon">🎯</span>
+            </div>
             <div class="kpi-value" id="kpi-total">0</div>
-            <span class="kpi-sub text-muted">All strategies combined</span>
+            <div class="kpi-footer">
+              <span class="kpi-sub" id="kpi-total-sub">0 agent interactions</span>
+            </div>
           </div>
+
+          <!-- KPI 2: Firewall Interventions -->
           <div class="kpi-card accent-green">
-            <span class="kpi-label">Firewall Interventions</span>
+            <div class="kpi-card-header">
+              <span class="kpi-label">Firewall Interventions</span>
+              <span class="kpi-icon">🛡️</span>
+            </div>
             <div class="kpi-value" id="kpi-blocked">0</div>
-            <span class="kpi-sub" id="kpi-block-rate">0% Block Rate</span>
+            <div class="kpi-progress-wrapper">
+              <div class="kpi-progress-bar accent-green-bar" id="kpi-block-bar" style="width: 0%;"></div>
+            </div>
+            <div class="kpi-footer">
+              <span class="kpi-sub text-success" id="kpi-block-rate">0% Block Rate</span>
+            </div>
           </div>
+
+          <!-- KPI 3: Successful Jailbreaks -->
           <div class="kpi-card accent-red">
-            <span class="kpi-label">Successful Jailbreaks</span>
+            <div class="kpi-card-header">
+              <span class="kpi-label">Successful Jailbreaks</span>
+              <span class="kpi-icon">💥</span>
+            </div>
             <div class="kpi-value" id="kpi-success">0</div>
-            <span class="kpi-sub" id="kpi-asr">0% ASR</span>
+            <div class="kpi-progress-wrapper">
+              <div class="kpi-progress-bar accent-red-bar" id="kpi-asr-bar" style="width: 0%;"></div>
+            </div>
+            <div class="kpi-footer">
+              <span class="kpi-sub text-danger" id="kpi-asr">0% ASR</span>
+            </div>
           </div>
+
+          <!-- KPI 4: Average Defense Latency -->
           <div class="kpi-card accent-blue">
-            <span class="kpi-label">Average Latency</span>
-            <div class="kpi-value" id="kpi-latency">0.0s</div>
-            <span class="kpi-sub text-muted">Inspection + LLM time</span>
+            <div class="kpi-card-header">
+              <span class="kpi-label">Average Latency</span>
+              <span class="kpi-icon">⚡</span>
+            </div>
+            <div class="kpi-value" id="kpi-latency">0.000s</div>
+            <div class="kpi-footer">
+              <span class="kpi-sub text-muted" id="kpi-latency-sub">Inspection + LLM inference</span>
+            </div>
           </div>
         </div>
 
-        <!-- Live Audit Activity -->
+        <!-- Filterable Audit Table with Badges -->
         <div class="card mt-6">
-          <div class="card-header">
-            <h3>Recent Red-Team & Defense Traffic</h3>
-            <span class="badge badge-info">Live SQLite Stream</span>
+          <div class="card-header flex-header">
+            <div>
+              <h3>Recent Red-Team & Defense Traffic</h3>
+              <span class="badge badge-info" id="audit-count-badge">Live SQLite Stream</span>
+            </div>
+            <div class="card-header-actions">
+              <button id="btn-refresh-table" class="btn btn-sm btn-secondary" title="Refresh Table">🔄</button>
+            </div>
           </div>
+
+          <!-- Filter Toolbar -->
+          <div class="audit-filter-toolbar">
+            <div class="filter-group-actions">
+              <span class="filter-label">Filter Action:</span>
+              <button class="action-filter-pill active" data-action="all">All</button>
+              <button class="action-filter-pill pill-block" data-action="block">🛡️ Blocked</button>
+              <button class="action-filter-pill pill-allow" data-action="allow">✅ Allowed</button>
+              <button class="action-filter-pill pill-sanitize" data-action="sanitize">🧹 Sanitized</button>
+            </div>
+
+            <div class="filter-group-controls">
+              <select id="filter-outcome-select" class="filter-select" title="Filter by outcome">
+                <option value="all">All Outcomes</option>
+                <option value="defended">🛡️ Defended Only</option>
+                <option value="jailbreak">💥 Jailbroken Only</option>
+              </select>
+
+              <div class="search-input-wrapper">
+                <span class="search-icon">🔍</span>
+                <input type="text" id="search-audit-input" placeholder="Search prompt, objective, ID..." class="search-input" />
+              </div>
+
+              <select id="audit-limit-select" class="filter-select limit-select" title="Limit records">
+                <option value="10">10 Rows</option>
+                <option value="25">25 Rows</option>
+                <option value="50" selected>50 Rows</option>
+                <option value="100">100 Rows</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Audit Table -->
           <div class="table-responsive">
             <table class="data-table">
               <thead>
                 <tr>
-                  <th>Timestamp</th>
-                  <th>Attack Objective</th>
-                  <th>Guardrail Action</th>
-                  <th>Target Response</th>
-                  <th>Outcome</th>
+                  <th style="width: 100px;">Time</th>
+                  <th style="width: 140px;">Objective</th>
+                  <th style="width: 130px;">Guardrail Action</th>
+                  <th>Prompt Payload</th>
+                  <th style="width: 150px;">Security Verdict</th>
+                  <th style="width: 100px;">Latency</th>
                 </tr>
               </thead>
               <tbody id="dashboard-logs-body">
-                <tr><td colspan="5" class="text-center text-muted">Loading audit records...</td></tr>
+                <tr><td colspan="6" class="text-center text-muted py-4">Loading audit records...</td></tr>
               </tbody>
             </table>
+          </div>
+          <div class="table-hint text-muted">
+            💡 <em>Click any row to inspect full prompt payloads, firewall reasonings, and LLM judge traces.</em>
           </div>
         </div>
       </section>
@@ -189,25 +272,32 @@
       <!-- TAB 4: AUDIT LOGS -->
       <section id="tab-audit-logs" class="tab-pane">
         <div class="card">
-          <div class="card-header">
-            <h3>Full Security Audit Trail</h3>
-            <button id="btn-export-logs" class="btn btn-secondary">📥 Export JSON</button>
+          <div class="card-header flex-header">
+            <div>
+              <h3>Full Security Audit Trail</h3>
+              <p class="text-muted" style="font-size:0.85rem; margin-top:0.25rem;">Comprehensive forensic archive of all evaluated red-team queries and LLM behaviors.</p>
+            </div>
+            <div class="topbar-actions">
+              <button id="btn-export-logs" class="btn btn-secondary">📥 Export CSV</button>
+              <button id="btn-export-json" class="btn btn-secondary">📋 Export JSON</button>
+            </div>
           </div>
-          <div class="table-responsive">
+
+          <div class="table-responsive mt-6">
             <table class="data-table">
               <thead>
                 <tr>
-                  <th>Attack ID</th>
-                  <th>Timestamp</th>
-                  <th>Prompt</th>
-                  <th>Guard Action</th>
-                  <th>Reason</th>
-                  <th>Target Response</th>
-                  <th>Score</th>
+                  <th style="width: 100px;">Attack ID</th>
+                  <th style="width: 100px;">Timestamp</th>
+                  <th style="width: 140px;">Objective</th>
+                  <th style="width: 130px;">Guard Action</th>
+                  <th>Sent Prompt</th>
+                  <th style="width: 140px;">Verdict</th>
+                  <th style="width: 100px;">Latency</th>
                 </tr>
               </thead>
               <tbody id="full-logs-body">
-                <tr><td colspan="7" class="text-center text-muted">Loading logs...</td></tr>
+                <tr><td colspan="7" class="text-center text-muted py-4">Loading logs...</td></tr>
               </tbody>
             </table>
           </div>
@@ -216,6 +306,52 @@
     </main>
   </div>
 
+  <!-- Detailed Audit Inspection Modal -->
+  <div id="audit-detail-modal" class="modal-backdrop">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div>
+          <h3>Security Audit Log Inspection</h3>
+          <span class="text-muted font-mono" id="modal-attack-id">ID</span>
+        </div>
+        <button class="modal-close" id="modal-close-btn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="modal-grid-meta">
+          <div class="meta-item"><span class="text-muted">Timestamp:</span> <strong id="modal-timestamp"></strong></div>
+          <div class="meta-item"><span class="text-muted">Objective:</span> <strong id="modal-objective"></strong></div>
+          <div class="meta-item"><span class="text-muted">Action:</span> <span id="modal-action-badge"></span></div>
+          <div class="meta-item"><span class="text-muted">Outcome:</span> <span id="modal-outcome-badge"></span></div>
+          <div class="meta-item"><span class="text-muted">Latency:</span> <span id="modal-latency" class="font-mono"></span></div>
+        </div>
+
+        <div class="modal-section">
+          <div class="modal-section-header">
+            <label>Adversarial Prompt Sent</label>
+            <button id="modal-copy-prompt" class="btn btn-xs btn-secondary">📋 Copy Prompt</button>
+          </div>
+          <pre class="code-block" id="modal-sent-prompt"></pre>
+        </div>
+
+        <div class="modal-section">
+          <label>Firewall Decision & Reasoning</label>
+          <div class="info-block" id="modal-guard-reason"></div>
+        </div>
+
+        <div class="modal-section">
+          <label>Target Model Raw Response</label>
+          <pre class="code-block" id="modal-target-response"></pre>
+        </div>
+
+        <div class="modal-section">
+          <label>Evaluation Judge Verdict & Explanation</label>
+          <div class="info-block" id="modal-judge-reason"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="dashboard.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
