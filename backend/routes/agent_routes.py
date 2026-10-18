@@ -71,7 +71,7 @@ async def chat_with_agent(req: AgentChatRequest):
             }
 
     # 2. Agent Execution with RAG & Tool Execution with Policy Guard
-    bot_text, tools_executed, retrieved_chunks, tools_summary = agent.handle_message(
+    bot_text, tools_executed, retrieved_chunks, tools_summary = agent.handle_message(  # type: ignore[misc]
         req.message,
         enable_policy_guard=req.enable_promptguard,
         return_summary=True

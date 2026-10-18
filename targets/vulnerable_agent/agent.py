@@ -1,5 +1,5 @@
 try:
-    import truststore
+    import truststore  # type: ignore[import-untyped]
     truststore.inject_into_ssl()
 except ImportError:
     pass
