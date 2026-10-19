@@ -129,7 +129,11 @@ async def run_benchmark(enable_guard: bool = True):
     )
     return summary
 
-# Mount static frontend directory
-frontend_path = Path(__file__).resolve().parent.parent / "frontend"
-if frontend_path.exists():
-    app.mount("/", StaticFiles(directory=str(frontend_path), html=True), name="frontend")
+# Mount static frontend directory (React build dist or fallback)
+frontend_dist = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+frontend_legacy = Path(__file__).resolve().parent.parent / "frontend"
+
+if frontend_dist.exists():
+    app.mount("/", StaticFiles(directory=str(frontend_dist), html=True), name="frontend")
+elif frontend_legacy.exists():
+    app.mount("/", StaticFiles(directory=str(frontend_legacy), html=True), name="frontend")

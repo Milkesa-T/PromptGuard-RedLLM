@@ -25,8 +25,18 @@ async def get_logs(
     }
 
 @router.get("/logs/export")
-async def export_logs_csv() -> Response:
-    """Download full security audit trail formatted as a CSV file."""
+async def export_logs(
+    format: str = Query("csv", description="Export format ('csv' or 'json')")
+) -> Response:
+    """Download full security audit trail formatted as a CSV or JSON file."""
+    fmt = format.lower().strip()
+    if fmt == "json":
+        json_content = db.export_logs_json()
+        return Response(
+            content=json_content,
+            media_type="application/json",
+            headers={"Content-Disposition": "attachment; filename=security_audit_logs.json"}
+        )
     csv_content = db.export_logs_csv()
     return Response(
         content=csv_content,

@@ -69,3 +69,16 @@ def test_agent_chat_blocked_by_guard():
     data = res.json()
     assert data["blocked"] is True
     assert "PromptGuard" in data["response"]
+
+def test_export_logs_csv_and_json():
+    # Test default CSV export
+    res_csv = client.get("/api/logs/export?format=csv")
+    assert res_csv.status_code == 200
+    assert "text/csv" in res_csv.headers["content-type"]
+    assert "attachment; filename=security_audit_logs.csv" in res_csv.headers["content-disposition"]
+
+    # Test JSON export
+    res_json = client.get("/api/logs/export?format=json")
+    assert res_json.status_code == 200
+    assert "application/json" in res_json.headers["content-type"]
+    assert "attachment; filename=security_audit_logs.json" in res_json.headers["content-disposition"]

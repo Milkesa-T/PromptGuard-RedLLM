@@ -235,3 +235,8 @@ class AuditDatabase:
             ])
             
         return output.getvalue()
+
+    def export_logs_json(self) -> str:
+        """Export all audit logs to a formatted JSON string."""
+        logs = self.get_recent_logs(limit=1000)
+        return json.dumps(logs, indent=2)
