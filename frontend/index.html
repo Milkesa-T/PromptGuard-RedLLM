@@ -34,6 +34,9 @@
         <button class="nav-item" data-tab="audit-logs">
           <span class="nav-icon">📜</span> Audit Logs
         </button>
+        <button class="nav-item" data-tab="rag-kb">
+          <span class="nav-icon">📚</span> RAG Knowledge Base
+        </button>
       </nav>
 
       <div class="sidebar-footer">
@@ -303,6 +306,38 @@
           </div>
         </div>
       </section>
+
+      <!-- TAB 5: RAG KNOWLEDGE BASE -->
+      <section id="tab-rag-kb" class="tab-pane">
+        <div class="card">
+          <div class="card-header flex-header">
+            <div>
+              <h3>RAG Knowledge Base</h3>
+              <p class="text-muted" style="font-size:0.85rem; margin-top:0.25rem;">Browse loaded documents and inspect their indexed chunks.</p>
+            </div>
+            <button id="rag-refresh-btn" class="btn btn-secondary">🔄 Refresh</button>
+          </div>
+          <p id="rag-summary" class="text-muted rag-summary">Loading documents...</p>
+          <form id="rag-search-form" class="rag-search-bar" role="search">
+            <div class="rag-search-field rag-search-query">
+              <label for="rag-search-input">Search</label>
+              <input id="rag-search-input" type="search" class="form-control" placeholder="Search the knowledge base..." />
+            </div>
+            <div class="rag-search-field rag-search-limit">
+              <label for="rag-search-topk">Results</label>
+              <select id="rag-search-topk" class="form-control">
+                <option value="3">3 results</option>
+                <option value="5" selected>5 results</option>
+                <option value="10">10 results</option>
+              </select>
+            </div>
+            <button id="rag-search-btn" class="btn btn-primary" type="submit">Search</button>
+            <button id="rag-search-clear" class="btn btn-secondary" type="button">Clear</button>
+          </form>
+          <div id="rag-search-results" class="rag-search-results" aria-live="polite" hidden></div>
+          <div id="rag-doc-grid" class="rag-doc-grid" aria-live="polite"></div>
+        </div>
+      </section>
     </main>
   </div>
 
@@ -351,8 +386,23 @@
     </div>
   </div>
 
+  <!-- RAG Document Chunks Modal -->
+  <div id="rag-chunk-modal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="rag-modal-title">
+    <div class="modal-card rag-modal-card">
+      <div class="modal-header">
+        <div>
+          <h3 id="rag-modal-title">Document chunks</h3>
+          <span id="rag-modal-meta" class="text-muted"></span>
+        </div>
+        <button class="modal-close" id="rag-modal-close" type="button" aria-label="Close document chunks">&times;</button>
+      </div>
+      <div class="modal-body rag-chunk-list" id="rag-chunk-list"></div>
+    </div>
+  </div>
+
   <script src="dashboard.js"></script>
   <script src="app.js"></script>
   <script src="chat.js"></script>
+  <script src="rag_viewer.js"></script>
 </body>
 </html>
