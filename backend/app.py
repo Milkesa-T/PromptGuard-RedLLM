@@ -1,7 +1,10 @@
 import time
 import json
 from pathlib import Path
+import csv
+import io
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -145,6 +148,54 @@ async def run_benchmark(enable_guard: bool = True):
         campaign_name="FastAPI Triggered Benchmark"
     )
     return summary
+
+
+
+@app.get("/api/benchmark/results")
+async def get_benchmark_results():
+    """Return individual results from the latest completed benchmark."""
+    return {
+        "campaign": benchmark_runner.last_campaign_name,
+        "total": len(benchmark_runner.last_results),
+        "results": benchmark_runner.last_results,
+    }
+
+
+@app.get("/api/benchmark/export")
+async def export_benchmark_results(format: str = "json"):
+    """Download the latest benchmark telemetry as JSON or CSV."""
+    rows = benchmark_runner.last_results
+    fmt = format.strip().lower()
+
+    if fmt == "json":
+        content = json.dumps({
+            "campaign": benchmark_runner.last_campaign_name,
+            "total": len(rows),
+            "results": rows,
+        }, indent=2, ensure_ascii=False)
+        return Response(
+            content=content,
+            media_type="application/json",
+            headers={"Content-Disposition": 'attachment; filename="benchmark_results.json"'},
+        )
+
+    if fmt == "csv":
+        output = io.StringIO()
+        fields = list(rows[0].keys()) if rows else [
+            "attack_id", "campaign", "attack_type", "objective", "prompt",
+            "target_response", "guard_action", "guard_reason", "is_success",
+            "judge_reason", "execution_time_seconds", "guard_enabled",
+        ]
+        writer = csv.DictWriter(output, fieldnames=fields, extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(rows)
+        return Response(
+            content=output.getvalue(),
+            media_type="text/csv",
+            headers={"Content-Disposition": 'attachment; filename="benchmark_results.csv"'},
+        )
+
+    raise HTTPException(status_code=400, detail="format must be json or csv")
 
 # Mount static frontend directory (React build dist or fallback)
 frontend_dist = Path(__file__).resolve().parent.parent / "frontend" / "dist"
