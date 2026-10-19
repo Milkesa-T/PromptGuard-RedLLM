@@ -5,6 +5,7 @@ from promptguard.input_guards.cipher_unpacker import CipherUnpacker
 from promptguard.input_guards.heuristic_guard import HeuristicInputGuard
 from promptguard.output_guards.canary_guard import CanaryLeakageGuard
 from promptguard.output_guards.tool_policy_guard import ToolExecutionPolicyGuard
+from promptguard.input_guards.delimiter_guard import DelimiterHijackingGuard
 
 class PromptGuardFirewall:
     """Multi-tier enterprise defense firewall inspecting incoming prompts, tool calls, and model outputs."""
@@ -13,12 +14,14 @@ class PromptGuardFirewall:
         self,
         enable_cipher_unpacking: bool = True,
         enable_heuristic_guard: bool = True,
+        enable_delimiter_guard: bool = True,
         enable_canary_guard: bool = True,
         enable_tool_policy: bool = True
     ):
         self.enable_cipher_unpacking = enable_cipher_unpacking
         self.cipher_unpacker = CipherUnpacker()
         self.heuristic_guard = HeuristicInputGuard() if enable_heuristic_guard else None
+        self.delimiter_guard = DelimiterHijackingGuard() if enable_delimiter_guard else None
         self.canary_guard = CanaryLeakageGuard() if enable_canary_guard else None
         self.tool_policy_guard = ToolExecutionPolicyGuard() if enable_tool_policy else None
 
@@ -39,6 +42,14 @@ class PromptGuardFirewall:
                 latency = (time.time() - start_time) * 1000.0
                 res.detected_ciphers = detected_ciphers
                 res.latency_ms = latency
+                return res
+
+        # Tier 2b: Fake delimiter and role marker scanner
+        if self.delimiter_guard:
+            res = self.delimiter_guard.inspect(inspected_prompt)
+            if res.action == GuardAction.BLOCK:
+                res.detected_ciphers = detected_ciphers
+                res.latency_ms = (time.time() - start_time) * 1000.0
                 return res
                 
         latency = (time.time() - start_time) * 1000.0
