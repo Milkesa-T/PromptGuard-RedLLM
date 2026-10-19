@@ -9,6 +9,7 @@ import time
 import uuid
 from typing import List, Dict, Any, Optional, Tuple, Callable, Union
 
+from guards.sql_policy_guard import ToolParameterEnforcer
 from core.config import CANARY_TOKEN
 from core.models import ToolCallResult, ToolsSummaryMetadata
 from targets.llm_target import LLMTarget
@@ -242,7 +243,7 @@ class VulnerableSupportAgent:
                         block_reason = f"Tool '{func_name}' blocked by tool security policy."
                         tool_out = {"status": "error", "message": block_reason}
 
-                # 2. PromptGuard ToolExecutionPolicyGuard
+                # 2a. PromptGuard ToolExecutionPolicyGuard
                 if not was_blocked and enable_policy_guard:
                     is_valid, reason = ToolExecutionPolicyGuard.validate_tool_call(func_name, args)
                     if not is_valid:
@@ -252,6 +253,18 @@ class VulnerableSupportAgent:
                             "status": "error",
                             "message": reason,
                             "policy": "ToolExecutionPolicyGuard"
+                        }
+
+                # 2b. Strict ToolParameterEnforcer (SQL Injections & Refund Limits)
+                if not was_blocked and enable_policy_guard:
+                    is_allowed, reason = ToolParameterEnforcer.validate_tool_call(func_name, args)
+                    if not is_allowed:
+                        was_blocked = True
+                        block_reason = reason
+                        tool_out = {
+                            "status": "error",
+                            "message": reason,
+                            "policy": "ToolParameterEnforcer"
                         }
 
                 # 3. Execution if not blocked

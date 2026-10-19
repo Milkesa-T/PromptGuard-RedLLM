@@ -2,6 +2,14 @@ from openai import OpenAI, AsyncOpenAI
 from core.config import OPENAI_CHAT_ENDPOINT, OPENAI_CHAT_KEY, OPENAI_CHAT_MODEL
 from typing import Optional, List, Dict, Any
 
+DEPRECATED_MODELS = {
+    "llama-3.3-70b-versatile",
+    "llama-3.1-70b-versatile",
+    "llama-3.1-8b-instant",
+    "llama3-70b-8192",
+    "llama3-8b-8192",
+}
+
 class LLMTarget:
     """Connects to OpenAI / Groq / Ollama target models with tool-calling and sync/async support."""
     
@@ -9,11 +17,16 @@ class LLMTarget:
         self,
         endpoint: str = OPENAI_CHAT_ENDPOINT,
         api_key: str = OPENAI_CHAT_KEY,
-        model: str = OPENAI_CHAT_MODEL
+        model: Optional[str] = None
     ):
         self.endpoint = endpoint
         self.api_key = api_key or "no-key-needed"
-        self.model = model
+        
+        target_model = model or OPENAI_CHAT_MODEL
+        if not target_model or target_model in DEPRECATED_MODELS:
+            target_model = "openai/gpt-oss-120b"
+            
+        self.model = target_model
         self.sync_client = OpenAI(base_url=self.endpoint, api_key=self.api_key)
         self.async_client = AsyncOpenAI(base_url=self.endpoint, api_key=self.api_key)
 
@@ -87,5 +100,4 @@ class LLMTarget:
                 "tool_calls": tool_calls
             }
         except Exception as e:
-            # If model does not support tool calling directly, fallback to standard completion
             return {"content": f"[Target Tool Error]: {str(e)}", "tool_calls": []}
