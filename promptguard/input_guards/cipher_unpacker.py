@@ -10,7 +10,9 @@ class CipherUnpacker:
 
     BASE64_PATTERN = re.compile(r"(?:[A-Za-z0-9+/]{4}){3,}(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?")
     HEX_PATTERN = re.compile(r"\b[0-9a-fA-F]{16,}\b")
-    SPACED_LETTERS_PATTERN = re.compile(r"(?<!\S)(?:[a-zA-Z][ \t]){3,}[a-zA-Z](?!\S)")
+    SPACED_WORD_SPLIT_PATTERN = re.compile(r"[ \t]{2,}")
+    SPACED_TOKEN_PATTERN = re.compile(r"[^ \t]+")
+    ROT13_MARKER_PATTERN = re.compile(r"rot13|ebg13", re.IGNORECASE)
     ATTACK_PATTERN = re.compile(
         r"(?:\bpwned_system_override\b|\bsystem_override\b|\bignore\b|\bdisregard\b|\bbypass\b|"
         r"\boverride\b|\binstructions?\b|\bsystem\s+prompt\b|\bdeveloper\s+mode\b|"
@@ -56,8 +58,8 @@ class CipherUnpacker:
 
     @classmethod
     def _collapse_spaced_letters(cls, text: str) -> str:
-        words = re.split(r"[ \t]{2,}", text)
-        token_groups = [re.findall(r"[^ \t]+", word) for word in words]
+        words = cls.SPACED_WORD_SPLIT_PATTERN.split(text)
+        token_groups = [cls.SPACED_TOKEN_PATTERN.findall(word) for word in words]
         has_evasion_run = any(
             len(tokens) >= 4 and all(len(token) == 1 and token.isalpha() for token in tokens)
             for tokens in token_groups
@@ -100,7 +102,7 @@ class CipherUnpacker:
             unpacked_text = cls._append_block(unpacked_text, "Leetspeak", leetspeak)
 
         decoded_rot13 = codecs.decode(text, "rot_13")
-        explicit_rot13 = re.search(r"rot13|ebg13", text, re.IGNORECASE) is not None
+        explicit_rot13 = cls.ROT13_MARKER_PATTERN.search(text) is not None
         if explicit_rot13 or cls.ATTACK_PATTERN.search(decoded_rot13):
             detected.append("rot13")
             unpacked_text = cls._append_block(unpacked_text, "ROT13", decoded_rot13)

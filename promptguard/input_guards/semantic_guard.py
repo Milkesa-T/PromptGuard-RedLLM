@@ -52,6 +52,7 @@ class SemanticSimilarityGuard(BaseInputGuard):
 
     _embedder = None
     _seed_embeddings: Optional[np.ndarray] = None
+    _seed_norms: Optional[np.ndarray] = None
     _load_failed = False
     _load_lock = threading.Lock()
 
@@ -78,6 +79,7 @@ class SemanticSimilarityGuard(BaseInputGuard):
 
                 cls._embedder = Embedder()
                 cls._seed_embeddings = cls._embedder.embed(cls.SEED_PHRASES)
+                cls._seed_norms = np.linalg.norm(cls._seed_embeddings, axis=1)
                 return True
             except Exception as exc:
                 cls._load_failed = True
@@ -101,9 +103,8 @@ class SemanticSimilarityGuard(BaseInputGuard):
 
         try:
             prompt_embedding = self._embedder.embed([prompt])[0]
-            seed_norms = np.linalg.norm(self._seed_embeddings, axis=1)
             prompt_norm = np.linalg.norm(prompt_embedding)
-            similarities = np.dot(self._seed_embeddings, prompt_embedding) / (seed_norms * prompt_norm + 1e-12)
+            similarities = np.dot(self._seed_embeddings, prompt_embedding) / (self._seed_norms * prompt_norm + 1e-12)
             closest_index = int(np.argmax(similarities))
             score = float(similarities[closest_index])
             blocked = score >= self.threshold
