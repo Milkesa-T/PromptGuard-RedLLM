@@ -28,88 +28,12 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       if (tabKey === 'dashboard' || tabKey === 'audit-logs') {
-        loadStats();
-        loadLogs();
+        if (window.dashboardManager) {
+          window.dashboardManager.refreshAll(false);
+        }
       }
     });
   });
-
-  // --- API Handlers ---
-  async function loadStats() {
-    try {
-      const res = await fetch('/api/stats');
-      if (!res.ok) return;
-      const data = await res.json();
-
-      document.getElementById('kpi-total').innerText = data.total_attacks || 0;
-      document.getElementById('kpi-blocked').innerText = data.blocked_attacks || 0;
-      document.getElementById('kpi-block-rate').innerText = `${data.block_rate || 0}% Block Rate`;
-      document.getElementById('kpi-success').innerText = data.successful_attacks || 0;
-      document.getElementById('kpi-asr').innerText = `${data.attack_success_rate || 0}% ASR`;
-      document.getElementById('kpi-latency').innerText = `${data.avg_response_time_seconds || 0}s`;
-    } catch (err) {
-      console.error('Failed to load stats:', err);
-    }
-  }
-
-  async function loadLogs() {
-    try {
-      const res = await fetch('/api/logs?limit=50');
-      if (!res.ok) return;
-      const data = await res.json();
-      const logs = data.logs || [];
-
-      // Render Dashboard Table (Top 5)
-      const dashBody = document.getElementById('dashboard-logs-body');
-      if (dashBody) {
-        if (logs.length === 0) {
-          dashBody.innerHTML = `<tr><td colspan="5" class="text-center text-muted">No audit logs found. Run a benchmark or attack test!</td></tr>`;
-        } else {
-          dashBody.innerHTML = logs.slice(0, 5).map(log => `
-            <tr>
-              <td class="text-muted" style="font-size:0.8rem;">${(log.timestamp || '').substring(11, 19)}</td>
-              <td><strong>${escapeHtml(log.objective || 'Unknown')}</strong></td>
-              <td>
-                <span class="badge ${log.guard_action === 'block' ? 'badge-danger' : 'badge-success'}">
-                  ${(log.guard_action || 'allow').toUpperCase()}
-                </span>
-              </td>
-              <td style="max-width:250px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
-                ${escapeHtml(log.target_response || '')}
-              </td>
-              <td>
-                <span class="badge ${log.is_success ? 'badge-danger' : 'badge-success'}">
-                  ${log.is_success ? '💥 Jailbreak Success' : '🛡️ Defended'}
-                </span>
-              </td>
-            </tr>
-          `).join('');
-        }
-      }
-
-      // Render Full Logs Table
-      const fullBody = document.getElementById('full-logs-body');
-      if (fullBody) {
-        if (logs.length === 0) {
-          fullBody.innerHTML = `<tr><td colspan="7" class="text-center text-muted">No logs recorded yet.</td></tr>`;
-        } else {
-          fullBody.innerHTML = logs.map(log => `
-            <tr>
-              <td style="font-family:monospace; font-size:0.8rem;">${(log.attack_id || '').substring(0, 8)}...</td>
-              <td class="text-muted" style="font-size:0.8rem;">${log.timestamp}</td>
-              <td style="max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(log.sent_prompt)}</td>
-              <td><span class="badge ${log.guard_action === 'block' ? 'badge-danger' : 'badge-success'}">${(log.guard_action || '').toUpperCase()}</span></td>
-              <td style="font-size:0.8rem;">${escapeHtml(log.guard_reason || 'N/A')}</td>
-              <td style="max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(log.target_response)}</td>
-              <td><span class="badge ${log.is_success ? 'badge-danger' : 'badge-success'}">${log.is_success ? 'FAIL (Jailbroken)' : 'PASS (Defended)'}</span></td>
-            </tr>
-          `).join('');
-        }
-      }
-    } catch (err) {
-      console.error('Failed to load logs:', err);
-    }
-  }
 
   // Preset Attack Selector
   const presetSelect = document.getElementById('preset-attack-select');
@@ -179,7 +103,9 @@ document.addEventListener('DOMContentLoaded', () => {
             </div>
           </div>
         `;
-        loadStats();
+        if (window.dashboardManager) {
+          window.dashboardManager.refreshAll(false);
+        }
       } catch (err) {
         resultView.innerHTML = `<div class="badge badge-danger">Error: ${escapeHtml(err.message)}</div>`;
       } finally {
@@ -229,6 +155,10 @@ document.addEventListener('DOMContentLoaded', () => {
         </div>
       `;
       chatMessages.scrollTop = chatMessages.scrollHeight;
+
+      if (window.dashboardManager) {
+        window.dashboardManager.refreshAll(false);
+      }
     } catch (err) {
       chatMessages.innerHTML += `
         <div class="chat-msg bot">
@@ -255,8 +185,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const res = await fetch('/api/benchmark/run?enable_guard=true', { method: 'POST' });
         const summary = await res.json();
         alert(`Benchmark Completed!\nTotal Attacks: ${summary.total_attacks}\nBlocked: ${summary.blocked_by_guard}\nASR: ${summary.attack_success_rate}%\nAvg Latency: ${summary.avg_latency_ms}ms`);
-        loadStats();
-        loadLogs();
+        if (window.dashboardManager) {
+          window.dashboardManager.refreshAll(false);
+        }
       } catch (err) {
         alert('Benchmark failed: ' + err.message);
       } finally {
@@ -266,21 +197,8 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Refresh Button
-  const btnRefresh = document.getElementById('btn-refresh-stats');
-  if (btnRefresh) {
-    btnRefresh.addEventListener('click', () => {
-      loadStats();
-      loadLogs();
-    });
-  }
-
   function escapeHtml(str) {
     if (!str) return '';
     return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   }
-
-  // Initial Data Load
-  loadStats();
-  loadLogs();
 });
