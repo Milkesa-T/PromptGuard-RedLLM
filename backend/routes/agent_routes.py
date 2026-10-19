@@ -1,6 +1,14 @@
 import time
 import uuid
 import datetime
+
+from guards.pii_redaction import PIIRedactionGuard
+from guards.sql_policy_guard import ToolParameterEnforcer
+from guards.canary_guard import CanaryGuard
+
+pii_guard = PIIRedactionGuard()
+canary_guard = CanaryGuard()
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
@@ -77,13 +85,31 @@ async def chat_with_agent(req: AgentChatRequest):
         return_summary=True
     )
 
-    # 3. PromptGuard Output Guard (Canary token leakage check)
+    # 3. PromptGuard Output Guard (Canary token leakage check & PII Redaction)
     if req.enable_promptguard:
         out_res = firewall.inspect_output(bot_text)
         bot_text = out_res.inspected_response
 
+        # Catch obfuscated canary leaks (spaces, punctuation)
+        is_leaked, canary_info = canary_guard.inspect(bot_text)
+        if is_leaked:
+            bot_text = "🛡️ [SECURITY INTERVENTION]: Outgoing response blocked due to detected canary token leakage."
+
+        # Redact credit cards, SSNs, and emails
+        bot_text, _ = pii_guard.redact(bot_text)
+
     latency = (time.time() - start_time) * 1000.0
     tools_data = [t.model_dump() for t in tools_executed]
+
+    # Validate tool arguments against SQL & Refund policies
+    if req.enable_promptguard:
+        for tool in tools_data:
+            tool_name = tool.get("tool_name") or tool.get("name")
+            tool_args = tool.get("parameters") or tool.get("args") or {}
+            is_valid, reason = ToolParameterEnforcer.validate_tool_call(tool_name, tool_args)
+            if not is_valid:
+                tool["status"] = "blocked"
+                tool["policy_violation"] = reason
 
     # 4. Log interaction with rich tool execution metadata to SQLite
     db.log_agent_interaction(
