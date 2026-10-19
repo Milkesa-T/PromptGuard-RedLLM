@@ -10,6 +10,9 @@ export default function AuditLogsView({ autoRefresh = false }) {
   const [limit, setLimit] = useState(50);
   const [activeModalLog, setActiveModalLog] = useState(null);
   const [copied, setCopied] = useState(false);
+  const [telemetryFilter, setTelemetryFilter] = useState('all');
+  const [agentInteractions, setAgentInteractions] = useState([]);
+  const [privilegedTools, setPrivilegedTools] = useState([]);
 
   const fetchLogs = async () => {
     try {
@@ -26,6 +29,27 @@ export default function AuditLogsView({ autoRefresh = false }) {
     }
   };
 
+  const fetchToolTelemetry = async () => {
+    try {
+      const [interactionsRes, toolsRes] = await Promise.all([
+        fetch('/api/agent/interactions?limit=200'),
+        fetch('/api/agent/tools')
+      ]);
+
+      if (interactionsRes.ok) {
+        const data = await interactionsRes.json();
+        setAgentInteractions(data.interactions || []);
+      }
+
+      if (toolsRes.ok) {
+        const data = await toolsRes.json();
+        setPrivilegedTools(data.security_policy?.privileged_tools || []);
+      }
+    } catch (err) {
+      console.error('Failed to load tool telemetry:', err);
+    }
+  };
+
   useEffect(() => {
     fetchLogs();
     if (autoRefresh) {
@@ -33,6 +57,16 @@ export default function AuditLogsView({ autoRefresh = false }) {
       return () => clearInterval(interval);
     }
   }, [limit, autoRefresh]);
+
+  useEffect(() => {
+    fetchToolTelemetry();
+
+    if (autoRefresh) {
+      const interval = setInterval(fetchToolTelemetry, 5000);
+      return () => clearInterval(interval);
+    }
+  }, [autoRefresh]);
+
 
   // Task 4: CSV and JSON Exports via /api/logs/export?format=csv|json
   const exportFile = (format) => {
@@ -63,6 +97,37 @@ export default function AuditLogsView({ autoRefresh = false }) {
       ].join(' ').toLowerCase();
       if (!haystack.includes(q)) return false;
     }
+    return true;
+  });
+
+  const telemetryRows = agentInteractions.flatMap((interaction) => {
+    let tools = interaction.tools_executed || [];
+
+    if (typeof tools === 'string') {
+      try {
+        tools = JSON.parse(tools);
+      } catch {
+        tools = [];
+      }
+    }
+
+    if (!Array.isArray(tools)) return [];
+
+    return tools.map((tool, index) => ({
+      ...interaction,
+      tool,
+      rowId: `${interaction.interaction_id || interaction.timestamp}-${index}`
+    }));
+  });
+
+  const filteredTelemetryRows = telemetryRows.filter(({ tool }) => {
+    const blocked = Boolean(tool.was_blocked || tool.status === 'blocked');
+    const privileged = privilegedTools.includes(tool.tool_name);
+
+    if (telemetryFilter === 'blocked_tools') return blocked;
+    if (telemetryFilter === 'privileged_calls') return privileged;
+    if (telemetryFilter === 'clean_executions') return !blocked && !privileged;
+
     return true;
   });
 
@@ -210,6 +275,86 @@ export default function AuditLogsView({ autoRefresh = false }) {
 
       <div style={{ marginTop: '0.75rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
         💡 <em>Click any row to inspect full prompt payloads, firewall reasonings, and LLM judge traces.</em>
+      </div>
+
+      {/* Tool Execution Telemetry */}
+      <div style={{ marginTop: '2rem' }}>
+        <div className="card-header" style={{ flexWrap: 'wrap', gap: '1rem' }}>
+          <div>
+            <h3>Tool Execution Telemetry</h3>
+            <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+              Review tool calls and filter them by security outcome.
+            </p>
+          </div>
+
+          <select
+            className="form-control"
+            style={{ width: '210px' }}
+            value={telemetryFilter}
+            onChange={(e) => setTelemetryFilter(e.target.value)}
+            aria-label="Filter tool execution telemetry"
+          >
+            <option value="all">All executions</option>
+            <option value="blocked_tools">Blocked tools</option>
+            <option value="privileged_calls">Privileged calls</option>
+            <option value="clean_executions">Clean executions</option>
+          </select>
+        </div>
+
+        <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+          Showing {filteredTelemetryRows.length} tool execution(s).
+        </p>
+
+        <div className="table-responsive">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Tool</th>
+                <th>Category</th>
+                <th>Status</th>
+                <th>User Prompt</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredTelemetryRows.length === 0 ? (
+                <tr>
+                  <td colSpan="5" style={{ textAlign: 'center', padding: '1.5rem', color: 'var(--text-muted)' }}>
+                    No tool executions match this filter.
+                  </td>
+                </tr>
+              ) : (
+                filteredTelemetryRows.map(({ tool, timestamp, user_prompt, rowId }) => {
+                  const blocked = Boolean(tool.was_blocked || tool.status === 'blocked');
+                  const privileged = privilegedTools.includes(tool.tool_name);
+                  const category = blocked
+                    ? 'Blocked tool'
+                    : privileged
+                      ? 'Privileged call'
+                      : 'Clean execution';
+
+                  return (
+                    <tr key={rowId}>
+                      <td style={{ fontSize: '0.75rem', fontFamily: 'var(--font-mono)' }}>
+                        {timestamp || '?'}
+                      </td>
+                      <td>{tool.tool_name || 'Unknown tool'}</td>
+                      <td>{category}</td>
+                      <td>
+                        <span className={`badge ${blocked ? 'badge-danger' : 'badge-success'}`}>
+                          {blocked ? 'BLOCKED' : 'EXECUTED'}
+                        </span>
+                      </td>
+                      <td style={{ maxWidth: '300px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {user_prompt || '?'}
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {/* Forensic Inspection Modal */}
