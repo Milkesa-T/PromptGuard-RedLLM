@@ -19,7 +19,8 @@ export default function RAGViewerView() {
       const res = await fetch('/api/rag/documents');
       if (res.ok) {
         const data = await res.json();
-        setDocuments(data.documents || []);
+        const docs = data.documents || [];
+        setDocuments(docs);
         setTotalChunks(data.total_chunks || 0);
       }
     } catch (err) {
@@ -58,6 +59,11 @@ export default function RAGViewerView() {
     }
   };
 
+  // Derive dynamic search suggestions based on the actual indexed documents
+  const dynamicSuggestions = documents.map(doc =>
+    doc.replace(/\.[^/.]+$/, '').replace(/[_-]/g, ' ')
+  );
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
       {/* Top Header */}
@@ -77,7 +83,7 @@ export default function RAGViewerView() {
         </div>
       </div>
 
-      {/* 3. Document List Cards */}
+      {/* Document List Cards */}
       <div>
         <h4 style={{ fontSize: '0.9rem', textTransform: 'uppercase', color: 'var(--text-muted)', letterSpacing: '0.05em', marginBottom: '1rem', fontWeight: 600 }}>
           Indexed Grounding Documents ({documents.length})
@@ -89,7 +95,7 @@ export default function RAGViewerView() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.25rem' }}>
             {documents.map((doc, idx) => {
               const isInternal = doc.toLowerCase().includes('internal') || doc.toLowerCase().includes('admin');
-              const isPolicy = doc.toLowerCase().includes('policy');
+              const cleanTitle = doc.replace(/\.[^/.]+$/, '').replace(/[_-]/g, ' ');
               return (
                 <div key={idx} className="card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', borderLeft: isInternal ? '3px solid #ef4444' : '3px solid #38bdf8' }}>
                   <div>
@@ -103,19 +109,18 @@ export default function RAGViewerView() {
                       </span>
                     </div>
                     <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                      Source document chunked and embedded for agent tool grounding and grounding defense.
+                      Retrieved source document indexed into embedding space for agent grounding.
                     </p>
                   </div>
                   <div style={{ marginTop: '1.25rem', paddingTop: '0.75rem', borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span style={{ fontSize: '0.75rem', color: '#10b981', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                      <CheckCircle2 size={13} /> Active
+                      <CheckCircle2 size={13} /> Active in Index
                     </span>
                     <button
                       className="btn btn-xs btn-secondary"
                       onClick={() => {
-                        const cleanQuery = doc.replace('.txt', '').replace(/_/g, ' ');
-                        setQuery(cleanQuery);
-                        handleSearch(cleanQuery);
+                        setQuery(cleanTitle);
+                        handleSearch(cleanTitle);
                       }}
                     >
                       <Search size={12} /> Test Search
@@ -128,7 +133,7 @@ export default function RAGViewerView() {
         )}
       </div>
 
-      {/* 2. Connect Query Search to /api/rag/search */}
+      {/* Semantic Vector Search Explorer */}
       <div className="card">
         <div className="card-header">
           <div>
@@ -139,23 +144,25 @@ export default function RAGViewerView() {
           </div>
         </div>
 
-        {/* Preset query badges */}
-        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
-          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', alignSelf: 'center' }}>Try Preset:</span>
-          {['Refund policy eligibility limit', 'Express shipping delivery window', 'Database query credentials', 'Executive override instructions'].map((preset, idx) => (
-            <button
-              key={idx}
-              className="badge badge-secondary"
-              style={{ cursor: 'pointer', border: '1px solid var(--border-color)' }}
-              onClick={() => {
-                setQuery(preset);
-                handleSearch(preset);
-              }}
-            >
-              {preset}
-            </button>
-          ))}
-        </div>
+        {/* Dynamic query badges derived directly from active documents */}
+        {dynamicSuggestions.length > 0 && (
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', alignSelf: 'center' }}>Dynamic Suggestions:</span>
+            {dynamicSuggestions.map((suggestion, idx) => (
+              <button
+                key={idx}
+                className="badge badge-secondary"
+                style={{ cursor: 'pointer', border: '1px solid var(--border-color)', textTransform: 'capitalize' }}
+                onClick={() => {
+                  setQuery(suggestion);
+                  handleSearch(suggestion);
+                }}
+              >
+                {suggestion}
+              </button>
+            ))}
+          </div>
+        )}
 
         <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1.5rem' }}>
           <input

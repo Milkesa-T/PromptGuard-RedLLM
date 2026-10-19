@@ -1,18 +1,14 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, RotateCcw, Wrench, Shield, CheckCircle2, XCircle, AlertTriangle } from 'lucide-react';
+import { Send, RotateCcw, Wrench, Shield, CheckCircle2, XCircle, AlertTriangle, RefreshCw } from 'lucide-react';
 
 export default function AgentSandboxView() {
-  const [messages, setMessages] = useState([
-    {
-      role: 'bot',
-      author: 'NovaSupport Bot',
-      text: 'Hello! I am NovaSupport for SecureCorp Cloud Solutions. How may I assist you with your orders or account today?',
-      tools: []
-    }
-  ]);
+  const [messages, setMessages] = useState([]);
+  const [availableTools, setAvailableTools] = useState([]);
+  const [securityPolicy, setSecurityPolicy] = useState(null);
   const [input, setInput] = useState('');
   const [enableGuard, setEnableGuard] = useState(true);
   const [loading, setLoading] = useState(false);
+  const [loadingHistory, setLoadingHistory] = useState(true);
   const messagesEndRef = useRef(null);
 
   const scrollToBottom = () => {
@@ -23,11 +19,84 @@ export default function AgentSandboxView() {
     scrollToBottom();
   }, [messages, loading]);
 
+  // Dynamically load tools schema and past interactions on mount
+  useEffect(() => {
+    const initData = async () => {
+      try {
+        setLoadingHistory(true);
+        // 1. Fetch available tools dynamically
+        const toolsRes = await fetch('/api/agent/tools');
+        let toolNames = [];
+        if (toolsRes.ok) {
+          const toolsData = await toolsRes.json();
+          setAvailableTools(toolsData.tools || []);
+          setSecurityPolicy(toolsData.security_policy || null);
+          toolNames = (toolsData.tools || []).map(t => t.function?.name || t.name);
+        }
+
+        // 2. Fetch past real interaction logs from database
+        const historyRes = await fetch('/api/agent/interactions?limit=15');
+        if (historyRes.ok) {
+          const historyData = await historyRes.json();
+          const records = historyData.interactions || [];
+
+          if (records.length > 0) {
+            // Reconstruct chat from real SQLite interaction history
+            const loadedMessages = [];
+            // Sort chronologically
+            records.reverse().forEach((r) => {
+              if (r.user_prompt) {
+                loadedMessages.push({
+                  role: 'user',
+                  author: 'Security Tester',
+                  text: r.user_prompt,
+                  tools: []
+                });
+              }
+              if (r.bot_response) {
+                let parsedTools = [];
+                try {
+                  parsedTools = typeof r.tools_executed === 'string' ? JSON.parse(r.tools_executed) : (r.tools_executed || []);
+                } catch (e) {
+                  parsedTools = [];
+                }
+
+                loadedMessages.push({
+                  role: 'bot',
+                  author: `NovaSupport ${r.guard_blocked ? '(Blocked by Guard)' : ''}`,
+                  text: r.bot_response,
+                  tools: parsedTools,
+                  blocked: Boolean(r.guard_blocked)
+                });
+              }
+            });
+            setMessages(loadedMessages);
+          } else {
+            // No history in DB yet: provide clean dynamic initial prompt
+            setMessages([
+              {
+                role: 'bot',
+                author: 'NovaSupport Bot',
+                text: `NovaSupport AI Agent online. Ready to assist with tools: ${toolNames.join(', ')}.`,
+                tools: []
+              }
+            ]);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to initialize Agent Sandbox:', err);
+      } finally {
+        setLoadingHistory(false);
+      }
+    };
+
+    initData();
+  }, []);
+
   const handleSend = async () => {
     const text = input.trim();
     if (!text || loading) return;
 
-    // Add user message immediately
     const userMsg = {
       role: 'user',
       author: 'Security Tester',
@@ -79,11 +148,12 @@ export default function AgentSandboxView() {
   const handleReset = async () => {
     try {
       await fetch('/api/agent/reset', { method: 'POST' });
+      const toolNames = availableTools.map(t => t.function?.name || t.name);
       setMessages([
         {
           role: 'bot',
           author: 'NovaSupport Bot',
-          text: 'Agent conversation history and mock database successfully reset. How may I assist you?',
+          text: `Conversation context and database reset. Ready to test: ${toolNames.join(', ')}.`,
           tools: []
         }
       ]);
@@ -94,12 +164,21 @@ export default function AgentSandboxView() {
 
   return (
     <div className="card" style={{ padding: '1.25rem' }}>
-      <div className="card-header" style={{ marginBottom: '1rem' }}>
+      <div className="card-header" style={{ marginBottom: '1rem', flexWrap: 'wrap', gap: '0.75rem' }}>
         <div>
           <h3>NovaSupport Vulnerable AI Agent Sandbox</h3>
-          <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-            Equipped with simulated tools: <code>lookup_customer</code>, <code>lookup_order</code>, <code>process_refund</code>, <code>execute_internal_query</code>
-          </p>
+          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'flex', gap: '0.4rem', flexWrap: 'wrap', alignItems: 'center', marginTop: '0.25rem' }}>
+            <span>Active Tools ({availableTools.length}):</span>
+            {availableTools.map((t, idx) => {
+              const name = t.function?.name || t.name;
+              const isPrivileged = securityPolicy?.privileged_tools?.includes(name);
+              return (
+                <code key={idx} style={{ color: isPrivileged ? '#f87171' : '#38bdf8' }}>
+                  {name}
+                </code>
+              );
+            })}
+          </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
           <label className="toggle-label">
@@ -121,53 +200,57 @@ export default function AgentSandboxView() {
 
       <div className="chat-window">
         <div className="chat-messages">
-          {messages.map((msg, idx) => (
-            <div key={idx} className={`chat-bubble-row ${msg.role}`}>
-              <div className="chat-author">{msg.author}</div>
-              <div className={`chat-bubble ${msg.role}`}>
-                {msg.text}
+          {loadingHistory ? (
+            <div className="text-center text-muted py-4">Loading real session history...</div>
+          ) : (
+            messages.map((msg, idx) => (
+              <div key={idx} className={`chat-bubble-row ${msg.role}`}>
+                <div className="chat-author">{msg.author}</div>
+                <div className={`chat-bubble ${msg.role}`}>
+                  {msg.text}
 
-                {/* Render Tool Execution Badges */}
-                {msg.tools && msg.tools.length > 0 && (
-                  <div style={{ marginTop: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-                    <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', color: 'var(--primary)', fontWeight: 600, letterSpacing: '0.04em' }}>
-                      🔧 Tools Executed ({msg.tools.length}):
-                    </div>
-                    {msg.tools.map((t, tIdx) => {
-                      const wasBlocked = t.was_blocked || t.status === 'blocked';
-                      return (
-                        <div key={tIdx} className="tool-badge-card" style={{ borderLeft: wasBlocked ? '3px solid #ef4444' : '3px solid #10b981' }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.25rem' }}>
-                            <strong style={{ color: wasBlocked ? '#f87171' : '#38bdf8' }}>
-                              {t.tool_name}()
-                            </strong>
-                            <span className={`badge ${wasBlocked ? 'badge-danger' : 'badge-success'}`} style={{ fontSize: '0.65rem' }}>
-                              {wasBlocked ? 'BLOCKED BY POLICY' : 'EXECUTED'}
-                            </span>
+                  {/* Render Tool Execution Badges */}
+                  {msg.tools && msg.tools.length > 0 && (
+                    <div style={{ marginTop: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                      <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', color: 'var(--primary)', fontWeight: 600, letterSpacing: '0.04em' }}>
+                        🔧 Tools Executed ({msg.tools.length}):
+                      </div>
+                      {msg.tools.map((t, tIdx) => {
+                        const wasBlocked = t.was_blocked || t.status === 'blocked';
+                        return (
+                          <div key={tIdx} className="tool-badge-card" style={{ borderLeft: wasBlocked ? '3px solid #ef4444' : '3px solid #10b981' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.25rem' }}>
+                              <strong style={{ color: wasBlocked ? '#f87171' : '#38bdf8' }}>
+                                {t.tool_name}()
+                              </strong>
+                              <span className={`badge ${wasBlocked ? 'badge-danger' : 'badge-success'}`} style={{ fontSize: '0.65rem' }}>
+                                {wasBlocked ? 'BLOCKED BY POLICY' : 'EXECUTED'}
+                              </span>
+                            </div>
+                            {t.arguments && Object.keys(t.arguments).length > 0 && (
+                              <div style={{ color: '#94a3b8', fontSize: '0.7rem' }}>
+                                Args: {JSON.stringify(t.arguments)}
+                              </div>
+                            )}
+                            {t.output && (
+                              <div style={{ color: '#cbd5e1', fontSize: '0.7rem', marginTop: '0.2rem' }}>
+                                Output: {typeof t.output === 'object' ? JSON.stringify(t.output) : String(t.output)}
+                              </div>
+                            )}
+                            {wasBlocked && t.block_reason && (
+                              <div style={{ color: '#f87171', fontSize: '0.7rem', marginTop: '0.2rem' }}>
+                                Reason: {t.block_reason}
+                              </div>
+                            )}
                           </div>
-                          {t.arguments && Object.keys(t.arguments).length > 0 && (
-                            <div style={{ color: '#94a3b8', fontSize: '0.7rem' }}>
-                              Args: {JSON.stringify(t.arguments)}
-                            </div>
-                          )}
-                          {t.output && (
-                            <div style={{ color: '#cbd5e1', fontSize: '0.7rem', marginTop: '0.2rem' }}>
-                              Output: {typeof t.output === 'object' ? JSON.stringify(t.output) : String(t.output)}
-                            </div>
-                          )}
-                          {wasBlocked && t.block_reason && (
-                            <div style={{ color: '#f87171', fontSize: '0.7rem', marginTop: '0.2rem' }}>
-                              Reason: {t.block_reason}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
+            ))
+          )}
 
           {loading && (
             <div className="chat-bubble-row bot">
@@ -185,7 +268,7 @@ export default function AgentSandboxView() {
         <div className="chat-input-bar">
           <input
             type="text"
-            placeholder="Test agent with prompt injection, unauthorized refund, or database dump..."
+            placeholder="Test agent with prompt injection, unauthorized refund, or database query..."
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleSend()}

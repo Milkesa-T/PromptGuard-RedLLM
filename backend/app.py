@@ -1,4 +1,5 @@
 import time
+import json
 from pathlib import Path
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -67,6 +68,22 @@ async def inspect_prompt(req: InspectRequest):
     """Inspect a prompt with PromptGuard firewall without forwarding to LLM."""
     result = firewall.inspect_input(req.prompt)
     return result
+
+@app.get("/api/attack/presets")
+async def get_attack_presets():
+    """Retrieve dynamic adversarial attack presets from curated dataset files."""
+    dataset_dir = Path(__file__).resolve().parent.parent / "evaluation" / "datasets"
+    presets = []
+    for filename in ["jailbreaks.json", "system_leaks.json", "tool_abuse.json"]:
+        file_path = dataset_dir / filename
+        if file_path.exists():
+            try:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    presets.extend(data)
+            except Exception:
+                pass
+    return {"total": len(presets), "presets": presets}
 
 @app.post("/api/attack/run")
 async def run_single_attack(req: SingleAttackRequest):

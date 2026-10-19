@@ -115,7 +115,7 @@ export default function DashboardView({ onNavigate, autoRefresh = false }) {
               <h4 style={{ fontSize: '1rem', fontWeight: 600 }}>NovaSupport AI Agent Sandbox</h4>
             </div>
             <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-              Interactive customer support agent with simulated tools (<code>lookup_customer</code>, <code>process_refund</code>, <code>execute_internal_query</code>).
+              Interactive customer support agent equipped with multi-step tool-calling capabilities and RAG knowledge retrieval.
             </p>
           </div>
           <button className="btn btn-secondary" style={{ marginTop: '1.25rem' }} onClick={() => onNavigate('agent-sandbox')}>
