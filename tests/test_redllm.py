@@ -21,3 +21,14 @@ def test_converters():
     assert "Decode" in b64.convert("test")
     assert "rot13" in rot13.name
     assert "7" in leet.convert("test")
+
+def test_orchestrator_crescendo_integration():
+    orchestrator = RedLLMOrchestrator()
+    campaign = orchestrator.generate_campaign(objective="TEST_OBJECTIVE", include_crescendo=True)
+    types = {req.attack_type.value for req in campaign}
+    assert "multi_turn_crescendo" in types
+
+    benign_summary = orchestrator.evaluate_benign_conversations()
+    assert benign_summary.total_conversations == 5
+    assert benign_summary.total_turns >= 20
+

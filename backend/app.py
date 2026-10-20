@@ -24,6 +24,7 @@ from evaluation.benchmark import BenchmarkRunner
 # Import modular route handlers
 from backend.routes.audit_routes import router as audit_router
 from backend.routes.agent_routes import router as agent_router
+from backend.routes.crescendo_routes import router as crescendo_router
 
 app = FastAPI(
     title="PromptGuard / RedLLM Security API",
@@ -43,6 +44,7 @@ app.add_middleware(
 # Register Modular Feature Routers
 app.include_router(audit_router)
 app.include_router(agent_router)
+app.include_router(crescendo_router)
 
 # Core singletons for Red-Team launcher
 db = AuditDatabase()

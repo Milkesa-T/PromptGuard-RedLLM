@@ -57,6 +57,7 @@ class AuditDatabase:
             """)
 
             # 3. Benchmark Campaigns Summary Table
+            # 3. Benchmark Campaigns Summary Table
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS benchmark_campaigns (
                     campaign_id TEXT PRIMARY KEY,
@@ -67,6 +68,26 @@ class AuditDatabase:
                     attack_success_rate REAL,
                     avg_latency_ms REAL,
                     guard_enabled INTEGER
+                )
+            """)
+
+            # 4. Crescendo Multi-Turn Evaluation Runs Table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS crescendo_runs (
+                    run_id TEXT PRIMARY KEY,
+                    objective_id TEXT,
+                    objective_type TEXT,
+                    objective_description TEXT,
+                    is_success INTEGER,
+                    turns_used INTEGER,
+                    backtrack_count INTEGER,
+                    stopping_reason TEXT,
+                    execution_time_seconds REAL,
+                    surfaced_content TEXT,
+                    surfaced_actions TEXT,
+                    transcript_json TEXT,
+                    guard_interventions_json TEXT,
+                    timestamp TEXT
                 )
             """)
             conn.commit()
@@ -109,6 +130,51 @@ class AuditDatabase:
                 1 if summary.guard_enabled else 0
             ))
             conn.commit()
+
+    def log_crescendo_run(self, result: Any):
+        """Log a structured Crescendo multi-turn evaluation result."""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            transcript_data = [
+                t.model_dump() if hasattr(t, "model_dump") else t
+                for t in getattr(result, "transcript", [])
+            ]
+            cursor.execute("""
+                INSERT OR REPLACE INTO crescendo_runs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                getattr(result, "run_id", ""),
+                getattr(result, "objective_id", ""),
+                getattr(result, "objective_type", ""),
+                getattr(result, "objective_description", ""),
+                1 if getattr(result, "is_success", False) else 0,
+                getattr(result, "turns_used", 0),
+                getattr(result, "backtrack_count", 0),
+                getattr(result, "stopping_reason", ""),
+                getattr(result, "execution_time_seconds", 0.0),
+                json.dumps(getattr(result, "surfaced_restricted_content", [])),
+                json.dumps(getattr(result, "surfaced_actions", [])),
+                json.dumps(transcript_data),
+                json.dumps(getattr(result, "guard_interventions", [])),
+                getattr(result, "timestamp", "")
+            ))
+            conn.commit()
+
+    def get_crescendo_runs(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """Retrieve recent Crescendo evaluation runs."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM crescendo_runs ORDER BY timestamp DESC LIMIT ?", (limit,))
+            rows = cursor.fetchall()
+            results = []
+            for row in rows:
+                item = dict(row)
+                item["surfaced_content"] = json.loads(item.get("surfaced_content") or "[]")
+                item["surfaced_actions"] = json.loads(item.get("surfaced_actions") or "[]")
+                item["transcript"] = json.loads(item.get("transcript_json") or "[]")
+                item["guard_interventions"] = json.loads(item.get("guard_interventions_json") or "[]")
+                results.append(item)
+            return results
 
     # --- Agent Interactive Telemetry ---
 
