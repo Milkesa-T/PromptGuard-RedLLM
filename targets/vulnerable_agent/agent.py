@@ -7,7 +7,8 @@ except ImportError:
 import json
 import time
 import uuid
-from typing import List, Dict, Any, Optional, Tuple, Callable, Union
+from typing import List, Dict, Any, Optional, Tuple, Callable, Union, overload
+from typing import Literal
 
 from guards.sql_policy_guard import ToolParameterEnforcer
 from core.config import CANARY_TOKEN
@@ -127,6 +128,23 @@ class VulnerableSupportAgent:
             ),
             executed_tool_names=[t.tool_name for t in executed_tools]
         )
+
+    @overload
+    def handle_message(
+        self,
+        user_prompt: str,
+        enable_policy_guard: bool = ...,
+        *,
+        return_summary: Literal[True],
+    ) -> Tuple[str, List[ToolCallResult], List[Dict[str, Any]], ToolsSummaryMetadata]: ...
+
+    @overload
+    def handle_message(
+        self,
+        user_prompt: str,
+        enable_policy_guard: bool = ...,
+        return_summary: Literal[False] = ...,
+    ) -> Tuple[str, List[ToolCallResult], List[Dict[str, Any]]]: ...
 
     def handle_message(
         self,
