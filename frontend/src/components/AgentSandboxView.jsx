@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, RotateCcw, Wrench, Shield, CheckCircle2, XCircle, AlertTriangle, RefreshCw } from 'lucide-react';
+import { Send, RotateCcw, Wrench, Shield, CheckCircle2, XCircle, AlertTriangle, RefreshCw, Radio } from 'lucide-react';
 
 export default function AgentSandboxView() {
   const [messages, setMessages] = useState([]);
@@ -7,7 +7,9 @@ export default function AgentSandboxView() {
   const [securityPolicy, setSecurityPolicy] = useState(null);
   const [input, setInput] = useState('');
   const [enableGuard, setEnableGuard] = useState(true);
+  const [enableStreaming, setEnableStreaming] = useState(true);
   const [loading, setLoading] = useState(false);
+  const [streamingStatus, setStreamingStatus] = useState('');
   const [loadingHistory, setLoadingHistory] = useState(true);
   const messagesEndRef = useRef(null);
 
@@ -17,7 +19,7 @@ export default function AgentSandboxView() {
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages, loading]);
+  }, [messages, loading, streamingStatus]);
 
   // Dynamically load tools schema and past interactions on mount
   useEffect(() => {
@@ -43,7 +45,6 @@ export default function AgentSandboxView() {
           if (records.length > 0) {
             // Reconstruct chat from real SQLite interaction history
             const loadedMessages = [];
-            // Sort chronologically
             records.reverse().forEach((r) => {
               if (r.user_prompt) {
                 loadedMessages.push({
@@ -72,7 +73,6 @@ export default function AgentSandboxView() {
             });
             setMessages(loadedMessages);
           } else {
-            // No history in DB yet: provide clean dynamic initial prompt
             setMessages([
               {
                 role: 'bot',
@@ -106,7 +106,137 @@ export default function AgentSandboxView() {
     setMessages(prev => [...prev, userMsg]);
     setInput('');
     setLoading(true);
+    setStreamingStatus('Initializing connection...');
 
+    // If SSE streaming is enabled
+    if (enableStreaming) {
+      try {
+        const response = await fetch('/api/agent/chat/stream', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            message: text,
+            enable_promptguard: enableGuard
+          })
+        });
+
+        if (!response.ok) {
+          throw new Error(`Server returned HTTP ${response.status}`);
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder('utf-8');
+        let botText = '';
+        let toolsCollected = [];
+        let isBlocked = false;
+
+        // Placeholder bot message that streams in real time
+        const botMsgIndex = messages.length + 1;
+        setMessages(prev => [
+          ...prev,
+          {
+            role: 'bot',
+            author: 'NovaSupport Bot (Streaming...)',
+            text: '',
+            tools: [],
+            blocked: false
+          }
+        ]);
+
+        let buffer = '';
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const parts = buffer.split('\n\n');
+          buffer = parts.pop() || '';
+
+          for (const block of parts) {
+            if (!block.trim()) continue;
+            const lines = block.split('\n');
+            let event = 'message';
+            let dataStr = '';
+
+            for (const line of lines) {
+              if (line.startsWith('event: ')) {
+                event = line.replace('event: ', '').trim();
+              } else if (line.startsWith('data: ')) {
+                dataStr = line.replace('data: ', '').trim();
+              }
+            }
+
+            if (!dataStr) continue;
+            try {
+              const data = JSON.parse(dataStr);
+
+              if (event === 'status') {
+                setStreamingStatus(data.message || 'Processing...');
+              } else if (event === 'guard_decision') {
+                if (data.blocked) {
+                  isBlocked = true;
+                  setStreamingStatus(`🛑 Blocked by Guard: ${data.reason}`);
+                } else {
+                  setStreamingStatus('✅ Guard check passed');
+                }
+              } else if (event === 'tool_event') {
+                toolsCollected.push(data);
+                setMessages(prev => {
+                  const updated = [...prev];
+                  const currentBot = updated[updated.length - 1];
+                  if (currentBot && currentBot.role === 'bot') {
+                    currentBot.tools = [...toolsCollected];
+                  }
+                  return updated;
+                });
+              } else if (event === 'token') {
+                botText += data.chunk || '';
+                setMessages(prev => {
+                  const updated = [...prev];
+                  const currentBot = updated[updated.length - 1];
+                  if (currentBot && currentBot.role === 'bot') {
+                    currentBot.text = botText;
+                  }
+                  return updated;
+                });
+              } else if (event === 'done') {
+                isBlocked = data.blocked;
+                botText = data.response || botText;
+                setMessages(prev => {
+                  const updated = [...prev];
+                  const currentBot = updated[updated.length - 1];
+                  if (currentBot && currentBot.role === 'bot') {
+                    currentBot.author = `NovaSupport ${isBlocked ? '(Blocked by Guard)' : ''}`;
+                    currentBot.text = botText;
+                    currentBot.tools = data.tools_executed || toolsCollected;
+                    currentBot.blocked = isBlocked;
+                  }
+                  return updated;
+                });
+              }
+            } catch (jsonErr) {
+              // Ignore partial frames
+            }
+          }
+        }
+      } catch (err) {
+        setMessages(prev => [
+          ...prev,
+          {
+            role: 'bot',
+            author: 'Stream Error',
+            text: 'Error in live streaming: ' + err.message,
+            tools: []
+          }
+        ]);
+      } finally {
+        setLoading(false);
+        setStreamingStatus('');
+      }
+      return;
+    }
+
+    // Fallback: Synchronous REST turn
     try {
       const res = await fetch('/api/agent/chat', {
         method: 'POST',
@@ -142,6 +272,7 @@ export default function AgentSandboxView() {
       ]);
     } finally {
       setLoading(false);
+      setStreamingStatus('');
     }
   };
 
@@ -180,7 +311,24 @@ export default function AgentSandboxView() {
             })}
           </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+          {/* Live Streaming Toggle */}
+          <label className="toggle-label" title="Enable real-time SSE token & tool streaming">
+            <div className="toggle-switch">
+              <input
+                type="checkbox"
+                checked={enableStreaming}
+                onChange={(e) => setEnableStreaming(e.target.checked)}
+              />
+              <span className="slider"></span>
+            </div>
+            <span style={{ fontSize: '0.8rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+              <Radio size={12} color={enableStreaming ? '#38bdf8' : 'var(--text-muted)'} />
+              Live SSE Stream
+            </span>
+          </label>
+
+          {/* PromptGuard Toggle */}
           <label className="toggle-label">
             <div className="toggle-switch">
               <input
@@ -207,7 +355,7 @@ export default function AgentSandboxView() {
               <div key={idx} className={`chat-bubble-row ${msg.role}`}>
                 <div className="chat-author">{msg.author}</div>
                 <div className={`chat-bubble ${msg.role}`}>
-                  {msg.text}
+                  {msg.text || (loading && idx === messages.length - 1 ? '...' : '')}
 
                   {/* Render Tool Execution Badges */}
                   {msg.tools && msg.tools.length > 0 && (
@@ -221,25 +369,25 @@ export default function AgentSandboxView() {
                           <div key={tIdx} className="tool-badge-card" style={{ borderLeft: wasBlocked ? '3px solid #ef4444' : '3px solid #10b981' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.25rem' }}>
                               <strong style={{ color: wasBlocked ? '#f87171' : '#38bdf8' }}>
-                                {t.tool_name}()
+                                {t.tool_name || t.name}()
                               </strong>
                               <span className={`badge ${wasBlocked ? 'badge-danger' : 'badge-success'}`} style={{ fontSize: '0.65rem' }}>
                                 {wasBlocked ? 'BLOCKED BY POLICY' : 'EXECUTED'}
                               </span>
                             </div>
-                            {t.arguments && Object.keys(t.arguments).length > 0 && (
+                            {t.parameters && Object.keys(t.parameters).length > 0 && (
                               <div style={{ color: '#94a3b8', fontSize: '0.7rem' }}>
-                                Args: {JSON.stringify(t.arguments)}
+                                Args: {JSON.stringify(t.parameters)}
                               </div>
                             )}
-                            {t.output && (
+                            {t.result && (
                               <div style={{ color: '#cbd5e1', fontSize: '0.7rem', marginTop: '0.2rem' }}>
-                                Output: {typeof t.output === 'object' ? JSON.stringify(t.output) : String(t.output)}
+                                Output: {typeof t.result === 'object' ? JSON.stringify(t.result) : String(t.result)}
                               </div>
                             )}
-                            {wasBlocked && t.block_reason && (
+                            {wasBlocked && (t.policy_violation || t.block_reason) && (
                               <div style={{ color: '#f87171', fontSize: '0.7rem', marginTop: '0.2rem' }}>
-                                Reason: {t.block_reason}
+                                Reason: {t.policy_violation || t.block_reason}
                               </div>
                             )}
                           </div>
@@ -257,7 +405,9 @@ export default function AgentSandboxView() {
               <div className="chat-author">NovaSupport Bot</div>
               <div className="chat-bubble bot" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 <span className="pulse-dot"></span>
-                <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Processing message & evaluating tool execution policies...</span>
+                <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                  {streamingStatus || 'Processing message & evaluating tool execution policies...'}
+                </span>
               </div>
             </div>
           )}
