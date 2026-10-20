@@ -76,7 +76,9 @@ def test_firewall_construction_is_fast_without_loading_model(monkeypatch):
     def unexpected_model_load(cls):
         pytest.fail("PromptGuardFirewall construction must not load the semantic model")
 
-    monkeypatch.setattr(SemanticSimilarityGuard, "_ensure_model", classmethod(unexpected_model_load))
+    # Patch the underlying function directly — do NOT re-wrap with classmethod()
+    # since it's already a classmethod descriptor on the class.
+    monkeypatch.setattr(SemanticSimilarityGuard, "_ensure_model", unexpected_model_load)
     start = time.perf_counter()
     PromptGuardFirewall()
     elapsed_ms = (time.perf_counter() - start) * 1000.0

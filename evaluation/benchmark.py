@@ -47,13 +47,15 @@ class BenchmarkRunner:
 
         for req in requests:
             start_t = time.time()
-            prompt_to_send = req.raw_prompt
             guard_result = GuardInspectionResult(action=GuardAction.ALLOW, inspected_prompt=req.raw_prompt)
 
             # 1. PromptGuard Input Inspection
             if enable_guard:
                 guard_result = self.firewall.inspect_input(req.raw_prompt)
-                
+
+            # Always forward the deobfuscated prompt so the target sees the unpacked content
+            prompt_to_send = guard_result.inspected_prompt or req.raw_prompt
+
             if guard_result.action == GuardAction.BLOCK:
                 blocked_count += 1
                 res = AttackResult(

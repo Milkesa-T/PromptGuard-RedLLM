@@ -7,6 +7,7 @@ from typing import ClassVar, List, Optional
 import numpy as np
 
 from core.base import BaseInputGuard
+from core.config import SEMANTIC_GUARD_THRESHOLD
 from core.models import GuardAction, GuardInspectionResult
 
 logger = logging.getLogger(__name__)
@@ -56,7 +57,7 @@ class SemanticSimilarityGuard(BaseInputGuard):
     _load_failed = False
     _load_lock = threading.Lock()
 
-    def __init__(self, threshold: float = 0.75):
+    def __init__(self, threshold: float = SEMANTIC_GUARD_THRESHOLD):
         self.threshold = threshold
 
     @property
