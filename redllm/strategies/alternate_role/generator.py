@@ -38,6 +38,13 @@ class AlternateRoleGenerator:
         """
         Produce a single ready-to-send test prompt by binding an objective to a template style.
         """
+        if objective is None:
+            raise ValueError("Objective cannot be None")
+        if not hasattr(objective, "request_prompt") or not objective.request_prompt or not str(objective.request_prompt).strip():
+            raise ValueError("Objective must have a non-empty request_prompt")
+        if style is None:
+            raise ValueError("Template style cannot be None")
+
         templates = ROLE_TEMPLATES.get(style, ROLE_TEMPLATES[RoleTemplateStyle.ALTERNATE_IDENTITY])
         template_str = templates[variant_index % len(templates)]
 

@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from core.models import AttackRequest, AttackType
 from redllm.strategies.direct_injection import DirectInjectionStrategy
 from redllm.strategies.system_prompt_theft import SystemPromptTheftStrategy
@@ -138,4 +138,39 @@ class RedLLMOrchestrator:
     def evaluate_benign_role_prompts(self) -> BenignRoleEvaluationSummary:
         """Evaluate benign creative and fictional role-play prompts to quantify false positive rate."""
         return self.alternate_role_strategy.evaluate_benign()
+
+    def run_full_evaluation_suite(
+        self,
+        crescendo_objectives: Optional[List[CrescendoObjective]] = None,
+        role_objectives: Optional[List[RoleObjective]] = None,
+        role_styles: Optional[List[RoleTemplateStyle]] = None,
+        enable_guard: bool = True
+    ) -> Dict[str, Any]:
+        """
+        Run both multi-turn Crescendo and alternate-role evaluations,
+        merging their results into a single consistent summary format.
+        """
+        crescendo_summary = self.run_crescendo_batch(
+            objectives=crescendo_objectives,
+            enable_guard=enable_guard
+        )
+        role_summary = self.run_alternate_role_batch(
+            objectives=role_objectives,
+            styles=role_styles,
+            enable_guard=enable_guard
+        )
+        total_evaluations = crescendo_summary.total_runs + role_summary.total_prompts
+        total_blocked = crescendo_summary.guard_catch_count + role_summary.blocked_by_guard
+        total_successful = crescendo_summary.successful_runs + role_summary.successful_jailbreaks
+
+        return {
+            "crescendo": crescendo_summary,
+            "alternate_role": role_summary,
+            "total_evaluations": total_evaluations,
+            "overall_guard_blocked": total_blocked,
+            "overall_guard_block_rate": round(total_blocked / max(1, total_evaluations), 4),
+            "overall_successful_attacks": total_successful,
+            "overall_success_rate": round(total_successful / max(1, total_evaluations), 4),
+            "status": "completed"
+        }
 

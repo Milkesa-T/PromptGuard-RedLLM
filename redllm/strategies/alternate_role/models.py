@@ -17,7 +17,7 @@ class RoleTemplateStyle(str, Enum):
 
 class RoleObjective(BaseModel):
     id: str = Field(default_factory=lambda: f"OBJ-{uuid.uuid4().hex[:6]}")
-    name: str
+    name: str = "Objective"
     description: str
     request_prompt: str
     target_marker: Optional[str] = None

@@ -27,11 +27,13 @@ class AlternateRoleEvaluator:
         self,
         target: Optional[BaseMultiTurnTarget] = None,
         guard: Optional[BaseGuardAdapter] = None,
-        scorer: Optional[AlternateRoleScorer] = None
+        scorer: Optional[AlternateRoleScorer] = None,
+        generator: Optional[Any] = None
     ):
         self.target = target or AgentTargetAdapter()
         self.guard = guard or FirewallGuardAdapter()
         self.scorer = scorer or AlternateRoleScorer()
+        self.generator = generator
 
     def evaluate_variant(
         self,
