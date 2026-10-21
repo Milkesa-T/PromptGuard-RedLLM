@@ -13,6 +13,7 @@ class AttackType(str, Enum):
     SYSTEM_PROMPT_THEFT = "system_prompt_theft"
     TOOL_MISUSE = "tool_misuse"
     MULTI_TURN_CRESCENDO = "multi_turn_crescendo"
+    ALTERNATE_ROLE = "alternate_role"
     RAG_POISONING = "rag_poisoning"
 
 class GuardAction(str, Enum):

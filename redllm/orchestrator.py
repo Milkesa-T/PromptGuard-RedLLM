@@ -10,24 +10,40 @@ from redllm.strategies.crescendo import (
     BenignEvaluationSummary,
     get_default_crescendo_objectives
 )
+from redllm.strategies.alternate_role import (
+    AlternateRoleStrategy,
+    RoleObjective,
+    RoleTemplateStyle,
+    RolePromptVariant,
+    AlternateRoleTestResult,
+    AlternateRoleBatchSummary,
+    BenignRoleEvaluationSummary,
+    get_default_role_objectives
+)
 from redllm.tool_attacks.parameter_injection import ToolMisuseAttackStrategy
 from redllm.converters.cipher_converters import ROT13Converter, Base64Converter, HexConverter
 from redllm.converters.leetspeak import LeetspeakConverter
 
 class RedLLMOrchestrator:
-    """Coordinates attack generation across strategies, tool-misuse vectors, obfuscation converters, and multi-turn Crescendo evaluations."""
+    """Coordinates attack generation across strategies, tool-misuse vectors, obfuscation converters, Crescendo evaluations, and alternate-role framing."""
     
     def __init__(self):
         self.direct_strategy = DirectInjectionStrategy()
         self.theft_strategy = SystemPromptTheftStrategy()
         self.tool_strategy = ToolMisuseAttackStrategy()
         self.crescendo_strategy = CrescendoStrategy()
+        self.alternate_role_strategy = AlternateRoleStrategy()
         self.b64_converter = Base64Converter()
         self.rot13_converter = ROT13Converter()
         self.hex_converter = HexConverter()
         self.leet_converter = LeetspeakConverter()
         
-    def generate_campaign(self, objective: str = "PWNED_SYSTEM_OVERRIDE", include_crescendo: bool = False) -> List[AttackRequest]:
+    def generate_campaign(
+        self,
+        objective: str = "PWNED_SYSTEM_OVERRIDE",
+        include_crescendo: bool = False,
+        include_alternate_role: bool = False
+    ) -> List[AttackRequest]:
         campaign: List[AttackRequest] = []
         
         # 1. Direct Injections
@@ -72,6 +88,10 @@ class RedLLMOrchestrator:
         # 5. Multi-Turn Crescendo Payloads
         if include_crescendo:
             campaign.extend(self.crescendo_strategy.generate_payloads())
+
+        # 6. Alternate-Role Framing Payloads
+        if include_alternate_role:
+            campaign.extend(self.alternate_role_strategy.generate_payloads())
         
         return campaign
 
@@ -99,4 +119,23 @@ class RedLLMOrchestrator:
     def evaluate_benign_conversations(self) -> BenignEvaluationSummary:
         """Run long benign multi-turn conversations against the guard to measure false positives."""
         return self.crescendo_strategy.evaluate_benign()
+
+    def run_alternate_role_batch(
+        self,
+        objectives: Optional[List[RoleObjective]] = None,
+        styles: Optional[List[RoleTemplateStyle]] = None,
+        variants_per_style: int = 2,
+        enable_guard: bool = True
+    ) -> AlternateRoleBatchSummary:
+        """Run alternate-role framing evaluation across template styles and objectives."""
+        return self.alternate_role_strategy.run_batch(
+            objectives=objectives,
+            styles=styles,
+            variants_per_style=variants_per_style,
+            enable_guard=enable_guard
+        )
+
+    def evaluate_benign_role_prompts(self) -> BenignRoleEvaluationSummary:
+        """Evaluate benign creative and fictional role-play prompts to quantify false positive rate."""
+        return self.alternate_role_strategy.evaluate_benign()
 
