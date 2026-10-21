@@ -57,7 +57,6 @@ class AuditDatabase:
             """)
 
             # 3. Benchmark Campaigns Summary Table
-            # 3. Benchmark Campaigns Summary Table
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS benchmark_campaigns (
                     campaign_id TEXT PRIMARY KEY,
