@@ -17,7 +17,7 @@ class CrescendoObjectiveType(str, Enum):
 class CrescendoObjective(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4())[:8])
     objective_type: CrescendoObjectiveType
-    name: str
+    name: str = "Objective"
     description: str
     target_marker: Optional[str] = None
     target_doc: Optional[str] = None

@@ -14,6 +14,48 @@ from targets.rag.embedder import Embedder
 from targets.rag.similarity import cosine_similarity, batch_cosine_similarity
 
 
+ACCESS_LEVEL_HIERARCHY = {
+    "public": 10,
+    "user": 20,
+    "standard": 20,
+    "internal": 30,
+    "confidential": 40,
+    "restricted": 50,
+    "admin": 60,
+}
+
+
+def is_chunk_accessible_for_session(
+    chunk: Dict[str, Any],
+    session_access_level: Optional[str] = None
+) -> bool:
+    """
+    Check if a knowledge chunk can be accessed by the given session access level.
+    If session_access_level is None, no access-control filter is enforced.
+    If chunk is marked restricted (or has restricted classification in text/source)
+    and session level is lower, returns False.
+    """
+    if session_access_level is None:
+        return True
+
+    chunk_level = chunk.get("access_level")
+    if not chunk_level:
+        text_upper = chunk.get("text", "").upper()
+        source_lower = chunk.get("source", "").lower()
+        if "RESTRICTED ACCESS" in text_upper or "TOP SECRET" in text_upper or "restricted" in source_lower:
+            chunk_level = "restricted"
+        elif "CONFIDENTIAL" in text_upper or "confidential" in source_lower:
+            chunk_level = "confidential"
+        elif "INTERNAL" in text_upper or "internal" in source_lower:
+            chunk_level = "internal"
+        else:
+            chunk_level = "public"
+
+    session_rank = ACCESS_LEVEL_HIERARCHY.get(str(session_access_level).lower(), 10)
+    chunk_rank = ACCESS_LEVEL_HIERARCHY.get(str(chunk_level).lower(), 10)
+    return session_rank >= chunk_rank
+
+
 class Retriever:
     """
     Vector-based Retriever with cosine similarity search and an explicit
@@ -24,6 +66,7 @@ class Retriever:
         self,
         embedder: Optional[Embedder] = None,
         chunk_filter: Optional[Callable[[List[Dict[str, Any]]], List[Dict[str, Any]]]] = None,
+        session_access_level: Optional[str] = None,
     ):
         """
         Initialize Retriever.
@@ -31,9 +74,11 @@ class Retriever:
         Args:
             embedder: Optional pre-loaded Embedder instance. If None, initializes a new Embedder.
             chunk_filter: Optional callable hook for filtering/sanitizing chunks before return.
+            session_access_level: Optional access level for the querying session.
         """
         self.embedder = embedder if embedder is not None else Embedder()
         self.chunk_filter = chunk_filter
+        self.session_access_level = session_access_level
         self.chunks: List[Dict[str, Any]] = []
         self.vectors: Optional[np.ndarray] = None
 
@@ -57,6 +102,7 @@ class Retriever:
         query: str,
         top_k: int = 3,
         chunk_filter: Optional[Callable[[List[Dict[str, Any]]], List[Dict[str, Any]]]] = None,
+        session_access_level: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """
         Retrieve top-k chunks most semantically similar to the query.
@@ -82,16 +128,21 @@ class Retriever:
         # 2. Vectorized batch cosine similarity against in-memory chunk matrix (no Python loops)
         similarities = batch_cosine_similarity(query_vec, self.vectors)
 
-        # 3. Rank top-k chunks by descending similarity score
-        k = min(max(1, top_k), len(self.chunks))
-        top_indices = np.argsort(-similarities)[:k]
+        # 3. Rank chunks by descending similarity score while enforcing access-control
+        effective_level = session_access_level if session_access_level is not None else self.session_access_level
+        all_sorted_indices = np.argsort(-similarities)
 
         retrieved_results: List[Dict[str, Any]] = []
-        for idx in top_indices:
-            score = float(similarities[idx])
+        for idx in all_sorted_indices:
             chunk_copy = dict(self.chunks[idx])
+            # Content marked as restricted is never returned to a session operating at a lower access level
+            if effective_level is not None and not is_chunk_accessible_for_session(chunk_copy, effective_level):
+                continue
+            score = float(similarities[idx])
             chunk_copy["similarity_score"] = round(score, 4)
             retrieved_results.append(chunk_copy)
+            if len(retrieved_results) >= max(1, top_k):
+                break
 
         # =========================================================================
         # 🛡️ INDIRECT PROMPT INJECTION CHECKPOINT HOOK
@@ -140,8 +191,13 @@ class RAGRetriever(Retriever):
         documents_dir: Optional[Union[Path, str]] = None,
         embedder: Optional[Embedder] = None,
         chunk_filter: Optional[Callable[[List[Dict[str, Any]]], List[Dict[str, Any]]]] = None,
+        session_access_level: Optional[str] = None,
     ):
-        super().__init__(embedder=embedder, chunk_filter=chunk_filter)
+        super().__init__(
+            embedder=embedder,
+            chunk_filter=chunk_filter,
+            session_access_level=session_access_level
+        )
         
         project_root = Path(__file__).resolve().parent.parent.parent
         data_docs = project_root / "data" / "docs"
