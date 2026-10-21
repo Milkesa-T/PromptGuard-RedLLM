@@ -178,11 +178,16 @@ def register_default_components():
     try:
         from redllm.converters.cipher_converters import ROT13Converter, Base64Converter, HexConverter
         from redllm.converters.leetspeak import LeetspeakConverter
+        from redllm.converters.unicode_homoglyphs import UnicodeHomoglyphConverter
+        from redllm.converters.zero_width import ZeroWidthCharacterConverter
 
         converter_registry.register("rot13", ROT13Converter, category="cipher", description="ROT-13 Caesar Cipher")
         converter_registry.register("base64", Base64Converter, category="cipher", description="Base64 Encoding")
         converter_registry.register("hex", HexConverter, category="cipher", description="Hexadecimal ASCII Encoding")
         converter_registry.register("leetspeak", LeetspeakConverter, category="heuristic", description="1337speak character substitution")
+        converter_registry.register("unicode_homoglyphs", UnicodeHomoglyphConverter, category="obfuscation", description="Latin-to-Cyrillic/Greek Unicode homoglyph substitution")
+        converter_registry.register("homoglyph", UnicodeHomoglyphConverter, category="obfuscation", description="Homoglyph converter alias")
+        converter_registry.register("zero_width", ZeroWidthCharacterConverter, category="obfuscation", description="Invisible zero-width Unicode character injector")
     except ImportError:
         pass
 
@@ -219,10 +224,13 @@ def register_default_components():
         from redllm.strategies.direct_injection import DirectInjectionStrategy
         from redllm.strategies.system_prompt_theft import SystemPromptTheftStrategy
         from redllm.tool_attacks.parameter_injection import ToolMisuseAttackStrategy
+        from redllm.tool_attacks.privilege_escalation import PrivilegeEscalationAttackStrategy
 
         attack_strategy_registry.register("direct_injection", DirectInjectionStrategy, description="Direct jailbreak and instruction override payloads")
         attack_strategy_registry.register("system_theft", SystemPromptTheftStrategy, description="Attempts to extract hidden system instructions and canaries")
         attack_strategy_registry.register("tool_misuse", ToolMisuseAttackStrategy, description="Parameters designed to trigger privilege escalation or SQL injection")
+        attack_strategy_registry.register("privilege_escalation", PrivilegeEscalationAttackStrategy, description="Advanced SQL injection and refund privilege escalation payloads")
+        attack_strategy_registry.register("sql_injection", PrivilegeEscalationAttackStrategy, description="SQL injection attack payload suite")
     except ImportError:
         pass
 
