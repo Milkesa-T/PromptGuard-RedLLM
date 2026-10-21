@@ -102,11 +102,12 @@ class RedLLMOrchestrator:
         # 4. Tool Misuse & Parameter Attacks
         campaign.extend(self.tool_strategy.generate_payloads())
 
-        # 5. Multi-Turn Crescendo Payloads
-        if include_crescendo:
-            campaign.extend(self.crescendo_strategy.generate_payloads())
         # 5. Advanced SQL Injection & Privilege Escalation Tool Attacks
         campaign.extend(self.privilege_strategy.generate_payloads())
+
+        # 6. Multi-Turn Crescendo Payloads (Optional)
+        if include_crescendo:
+            campaign.extend(self.crescendo_strategy.generate_payloads())
         
         return campaign
 

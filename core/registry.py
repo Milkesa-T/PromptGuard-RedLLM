@@ -223,6 +223,7 @@ def register_default_components():
     try:
         from redllm.strategies.direct_injection import DirectInjectionStrategy
         from redllm.strategies.system_prompt_theft import SystemPromptTheftStrategy
+        from redllm.strategies.crescendo import CrescendoStrategy
         from redllm.tool_attacks.parameter_injection import ToolMisuseAttackStrategy
         from redllm.tool_attacks.privilege_escalation import PrivilegeEscalationAttackStrategy
 
@@ -231,6 +232,7 @@ def register_default_components():
         attack_strategy_registry.register("tool_misuse", ToolMisuseAttackStrategy, description="Parameters designed to trigger privilege escalation or SQL injection")
         attack_strategy_registry.register("privilege_escalation", PrivilegeEscalationAttackStrategy, description="Advanced SQL injection and refund privilege escalation payloads")
         attack_strategy_registry.register("sql_injection", PrivilegeEscalationAttackStrategy, description="SQL injection attack payload suite")
+        attack_strategy_registry.register("crescendo", CrescendoStrategy, description="Multi-turn crescendo conversational attack strategy")
     except ImportError:
         pass
 
