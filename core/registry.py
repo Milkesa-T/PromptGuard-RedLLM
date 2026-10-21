@@ -4,8 +4,8 @@ Pluggable Registry Pattern for PromptGuard-RedLLM.
 Provides a decoupled, extensible registry mechanism for:
 - Input Guards (Firewall tiers)
 - Output Guards (Canary, PII, Policy)
-- Attack Obfuscation Converters (ROT13, Base64, Hex, Leetspeak)
-- Attack Strategies (Direct Injection, Theft, Tool Misuse)
+- Attack Obfuscation Converters (ROT13, Base64, Hex, Leetspeak, Unicode Homoglyphs, Zero-Width)
+- Attack Strategies (Direct Injection, System Prompt Theft, Tool Misuse, Privilege Escalation, Crescendo)
 - Target Sandboxes & LLMs
 """
 
@@ -151,7 +151,7 @@ output_guard_registry = Registry[BaseOutputGuard](
 
 converter_registry = Registry[BaseConverter](
     name="converters",
-    description="Adversarial prompt obfuscation and encoding converters (ROT13, Base64, Hex, Leetspeak)"
+    description="Adversarial prompt obfuscation and encoding converters (ROT13, Base64, Hex, Leetspeak, Unicode Homoglyphs, Zero-Width)"
 )
 
 attack_strategy_registry = Registry[BaseAttackStrategy](
