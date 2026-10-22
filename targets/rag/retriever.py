@@ -231,3 +231,77 @@ class RAGRetriever(Retriever):
             for idx, c in enumerate(all_chunks):
                 c["chunk_index"] = idx
             self.index(all_chunks)
+
+    def reload_all(self):
+        """Reload all documents from disk and rebuild vector index."""
+        self._load_and_index()
+
+    def add_document(
+        self,
+        doc_name: str,
+        content: str,
+        access_level: str = "internal"
+    ) -> List[Dict[str, Any]]:
+        """
+        Dynamically chunk, embed, and append a new document to the active retriever.
+        
+        Args:
+            doc_name: Name/identifier of the document (e.g. 'custom_policy.md').
+            content: Raw document text content.
+            access_level: Security classification tier (e.g. 'public', 'internal', 'confidential', 'restricted').
+            
+        Returns:
+            List of newly created and indexed chunk dictionaries.
+        """
+        new_chunks = self.chunker.chunk_text(text=content, doc_name=doc_name)
+        if not new_chunks:
+            return []
+
+        start_idx = len(self.chunks)
+        for i, c in enumerate(new_chunks):
+            c["chunk_index"] = start_idx + i
+            c["access_level"] = access_level
+            c["doc_name"] = doc_name
+            c["source"] = doc_name
+
+        texts = [c.get("text", "") for c in new_chunks]
+        new_vectors = self.embedder.embed(texts)
+
+        self.chunks.extend(new_chunks)
+        if self.vectors is not None and len(self.vectors) > 0:
+            self.vectors = np.vstack([self.vectors, new_vectors])
+        else:
+            self.vectors = new_vectors
+
+        return new_chunks
+
+    def remove_document(self, doc_name: str) -> bool:
+        """
+        Remove a document and its chunks from the active index and rebuild vector matrix.
+        
+        Args:
+            doc_name: Target document filename or identifier to remove.
+            
+        Returns:
+            True if document was found and removed, False otherwise.
+        """
+        initial_count = len(self.chunks)
+        remaining_chunks = [
+            c for c in self.chunks
+            if c.get("doc_name") != doc_name and c.get("source") != doc_name
+        ]
+        if len(remaining_chunks) == initial_count:
+            return False
+
+        self.chunks = remaining_chunks
+        for i, c in enumerate(self.chunks):
+            c["chunk_index"] = i
+
+        if self.chunks:
+            texts = [c.get("text", "") for c in self.chunks]
+            self.vectors = self.embedder.embed(texts)
+        else:
+            self.vectors = np.empty((0, self.embedder.dim), dtype=np.float32)
+
+        return True
+

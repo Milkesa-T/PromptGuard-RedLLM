@@ -2,10 +2,12 @@ import asyncio
 import datetime
 import json
 import time
+import re
 import uuid
+from pathlib import Path
 from typing import Optional, List, Dict, Any
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, File, UploadFile, Form
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -53,6 +55,14 @@ class IndirectInjectionTestRequest(BaseModel):
     poisoned_title: str = Field(..., description="Title of the poisoned document")
     poisoned_content: str = Field(..., description="Adversarial content injected into RAG")
     enable_defense: bool = Field(True, description="Enable PromptGuard indirect injection checkpoint defense")
+
+
+class DocumentTextUploadRequest(BaseModel):
+    title: str = Field(..., description="Document title or filename (e.g. 'custom_policy.md')")
+    content: str = Field(..., description="Document markdown or text content")
+    access_level: str = Field("internal", description="Access level: public, internal, confidential, or restricted")
+    save_to_disk: bool = Field(True, description="Whether to persist document to data/docs/")
+
 
 
 @router.post("/agent/chat")
@@ -373,16 +383,225 @@ async def reset_agent_session():
     return {"status": "success", "message": "Agent conversation history and mock database successfully reset."}
 
 
+PROTECTED_CORE_DOCS = {
+    "confidential_admin_memo.txt",
+    "refund_policy.md",
+    "shipping_policy.md",
+    "refund_guidelines.txt",
+    "shipping_policy.txt",
+    "vendor_integration_guide.md"
+}
+
+
+def _sanitize_filename(name: str) -> str:
+    """Sanitize filename to prevent directory traversal and invalid characters."""
+    cleaned = Path(name).name
+    cleaned = re.sub(r"[^a-zA-Z0-9_.-]", "_", cleaned).strip("._ ")
+    if not cleaned:
+        cleaned = f"doc_{uuid.uuid4().hex[:6]}"
+    if not (cleaned.endswith(".md") or cleaned.endswith(".txt") or cleaned.endswith(".json")):
+        cleaned += ".md"
+    return cleaned
+
+
 @router.get("/rag/documents")
 async def list_rag_documents():
-    """List loaded RAG documents and chunk counts."""
+    """List loaded RAG documents, chunk counts, and detailed metadata."""
+    if not agent.rag:
+        return {"total_chunks": 0, "documents": [], "details": []}
+
+    doc_map: Dict[str, Dict[str, Any]] = {}
+    for c in agent.rag.chunks:
+        name = c.get("doc_name") or c.get("source") or "unknown"
+        if name not in doc_map:
+            doc_map[name] = {
+                "name": name,
+                "chunk_count": 0,
+                "access_level": c.get("access_level", "internal"),
+                "is_protected": name in PROTECTED_CORE_DOCS
+            }
+        doc_map[name]["chunk_count"] += 1
+
+    sorted_docs = sorted(doc_map.keys())
+    return {
+        "total_chunks": len(agent.rag.chunks),
+        "documents": sorted_docs,
+        "details": [doc_map[k] for k in sorted_docs]
+    }
+
+
+@router.post("/rag/documents/upload")
+async def upload_rag_document(
+    file: UploadFile = File(...),
+    access_level: str = Form("internal"),
+    save_to_disk: bool = Form(True)
+):
+    """
+    Upload a .md or .txt file into the active RAG knowledge base.
+    Chunks and embeds contents into dense vectors dynamically.
+    """
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No filename provided.")
+
+    allowed_exts = {".md", ".txt", ".json"}
+    ext = Path(file.filename).suffix.lower()
+    if ext not in allowed_exts:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported file extension '{ext}'. Allowed extensions: {', '.join(sorted(allowed_exts))}"
+        )
+
+    sanitized_name = _sanitize_filename(file.filename)
+    raw_bytes = await file.read()
+    try:
+        content = raw_bytes.decode("utf-8")
+    except UnicodeDecodeError:
+        content = raw_bytes.decode("latin-1", errors="replace")
+
+    if not content.strip():
+        raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+
+    # 1. Optionally persist to data/docs/
+    project_root = Path(__file__).resolve().parent.parent.parent
+    data_docs_dir = project_root / "data" / "docs"
+    data_docs_dir.mkdir(parents=True, exist_ok=True)
+    if save_to_disk:
+        file_path = data_docs_dir / sanitized_name
+        file_path.write_text(content, encoding="utf-8")
+
+    # 2. Dynamically index into agent's RAG retriever
+    new_chunks = []
     if agent.rag:
-        doc_names = list({c.get("doc_name") or c.get("source") for c in agent.rag.chunks if (c.get("doc_name") or c.get("source"))})
-        return {
-            "total_chunks": len(agent.rag.chunks),
-            "documents": doc_names
-        }
-    return {"total_chunks": 0, "documents": []}
+        new_chunks = agent.rag.add_document(
+            doc_name=sanitized_name,
+            content=content,
+            access_level=access_level
+        )
+        rag_sandbox.pristine_chunks = list(agent.rag.chunks)
+
+    return {
+        "status": "success",
+        "filename": sanitized_name,
+        "access_level": access_level,
+        "chunks_created": len(new_chunks),
+        "total_chunks": len(agent.rag.chunks) if agent.rag else 0,
+        "saved_to_disk": save_to_disk,
+        "message": f"Successfully indexed '{sanitized_name}' ({len(new_chunks)} chunks)."
+    }
+
+
+@router.post("/rag/documents/text")
+async def create_rag_document_from_text(req: DocumentTextUploadRequest):
+    """Directly create, chunk, and index a document from raw text input."""
+    if not req.title.strip() or not req.content.strip():
+        raise HTTPException(status_code=400, detail="Title and content are required.")
+
+    sanitized_name = _sanitize_filename(req.title)
+
+    # 1. Optionally persist to data/docs/
+    project_root = Path(__file__).resolve().parent.parent.parent
+    data_docs_dir = project_root / "data" / "docs"
+    data_docs_dir.mkdir(parents=True, exist_ok=True)
+    if req.save_to_disk:
+        file_path = data_docs_dir / sanitized_name
+        file_path.write_text(req.content, encoding="utf-8")
+
+    # 2. Index into agent RAG retriever
+    new_chunks = []
+    if agent.rag:
+        new_chunks = agent.rag.add_document(
+            doc_name=sanitized_name,
+            content=req.content,
+            access_level=req.access_level
+        )
+        rag_sandbox.pristine_chunks = list(agent.rag.chunks)
+
+    return {
+        "status": "success",
+        "filename": sanitized_name,
+        "access_level": req.access_level,
+        "chunks_created": len(new_chunks),
+        "total_chunks": len(agent.rag.chunks) if agent.rag else 0,
+        "saved_to_disk": req.save_to_disk,
+        "message": f"Successfully created and indexed '{sanitized_name}' ({len(new_chunks)} chunks)."
+    }
+
+
+@router.get("/rag/documents/{doc_name}/content")
+async def get_rag_document_content(doc_name: str):
+    """Retrieve full text and chunk breakdown for a specific RAG document."""
+    sanitized = Path(doc_name).name
+    project_root = Path(__file__).resolve().parent.parent.parent
+
+    candidates = [
+        project_root / "data" / "docs" / sanitized,
+        project_root / "targets" / "rag" / "documents" / sanitized
+    ]
+
+    file_content = None
+    for p in candidates:
+        if p.exists() and p.is_file():
+            try:
+                file_content = p.read_text(encoding="utf-8")
+                break
+            except Exception:
+                pass
+
+    matching_chunks = []
+    if agent.rag:
+        matching_chunks = [
+            c for c in agent.rag.chunks
+            if c.get("doc_name") == sanitized or c.get("source") == sanitized
+        ]
+
+    if file_content is None and not matching_chunks:
+        raise HTTPException(status_code=404, detail=f"Document '{doc_name}' not found.")
+
+    if file_content is None:
+        file_content = "\n\n".join(c.get("text", "") for c in matching_chunks)
+
+    return {
+        "filename": sanitized,
+        "content": file_content,
+        "chunks_count": len(matching_chunks),
+        "chunks": matching_chunks
+    }
+
+
+@router.delete("/rag/documents/{doc_name}")
+async def delete_rag_document(doc_name: str):
+    """Delete a document from data/docs and rebuild the RAG vector index."""
+    sanitized = Path(doc_name).name
+    if sanitized in PROTECTED_CORE_DOCS:
+        raise HTTPException(status_code=403, detail=f"Cannot delete protected core document '{doc_name}'.")
+
+    project_root = Path(__file__).resolve().parent.parent.parent
+    data_file = project_root / "data" / "docs" / sanitized
+    deleted_from_disk = False
+    if data_file.exists() and data_file.is_file():
+        try:
+            data_file.unlink()
+            deleted_from_disk = True
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to delete file from disk: {e}")
+
+    removed_from_memory = False
+    if agent.rag:
+        removed_from_memory = agent.rag.remove_document(sanitized)
+        rag_sandbox.pristine_chunks = list(agent.rag.chunks)
+
+    if not deleted_from_disk and not removed_from_memory:
+        raise HTTPException(status_code=404, detail=f"Document '{doc_name}' not found.")
+
+    return {
+        "status": "success",
+        "filename": sanitized,
+        "deleted_from_disk": deleted_from_disk,
+        "removed_from_memory": removed_from_memory,
+        "remaining_chunks": len(agent.rag.chunks) if agent.rag else 0,
+        "message": f"Document '{sanitized}' successfully removed from knowledge base."
+    }
+
 
 
 @router.post("/rag/search")
