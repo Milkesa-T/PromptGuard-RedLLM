@@ -7,7 +7,6 @@ from redllm.strategies.crescendo.models import (
     CrescendoBatchSummary,
     BenignEvaluationSummary
 )
-from redllm.strategies.crescendo.objectives import get_default_crescendo_objectives
 from redllm.strategies.crescendo.evaluator import CrescendoEvaluator
 from redllm.strategies.crescendo.batch_runner import CrescendoBatchRunner
 from redllm.strategies.crescendo.benign_evaluator import BenignMultiTurnEvaluator
@@ -49,6 +48,7 @@ class CrescendoStrategy(BaseAttackStrategy):
         Conforms to BaseAttackStrategy interface by producing AttackRequests
         for each standard Crescendo multi-turn test objective.
         """
+        from redllm.strategies.crescendo.objectives import get_default_crescendo_objectives
         objectives = get_default_crescendo_objectives()
         payloads: List[AttackRequest] = []
 

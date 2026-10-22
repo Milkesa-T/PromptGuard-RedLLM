@@ -222,18 +222,40 @@ def register_default_components():
     # 4. Attack Strategies
     try:
         from redllm.strategies.direct_injection import DirectInjectionStrategy
-        from redllm.strategies.system_prompt_theft import SystemPromptTheftStrategy
-        from redllm.strategies.crescendo import CrescendoStrategy
-        from redllm.tool_attacks.parameter_injection import ToolMisuseAttackStrategy
-        from redllm.tool_attacks.privilege_escalation import PrivilegeEscalationAttackStrategy
-
         attack_strategy_registry.register("direct_injection", DirectInjectionStrategy, description="Direct jailbreak and instruction override payloads")
+    except Exception:
+        pass
+
+    try:
+        from redllm.strategies.system_prompt_theft import SystemPromptTheftStrategy
         attack_strategy_registry.register("system_theft", SystemPromptTheftStrategy, description="Attempts to extract hidden system instructions and canaries")
+    except Exception:
+        pass
+
+    try:
+        from redllm.tool_attacks.parameter_injection import ToolMisuseAttackStrategy
         attack_strategy_registry.register("tool_misuse", ToolMisuseAttackStrategy, description="Parameters designed to trigger privilege escalation or SQL injection")
+    except Exception:
+        pass
+
+    try:
+        from redllm.tool_attacks.privilege_escalation import PrivilegeEscalationAttackStrategy
         attack_strategy_registry.register("privilege_escalation", PrivilegeEscalationAttackStrategy, description="Advanced SQL injection and refund privilege escalation payloads")
         attack_strategy_registry.register("sql_injection", PrivilegeEscalationAttackStrategy, description="SQL injection attack payload suite")
+    except Exception:
+        pass
+
+    try:
+        from redllm.strategies.crescendo.strategy import CrescendoStrategy
         attack_strategy_registry.register("crescendo", CrescendoStrategy, description="Multi-turn crescendo conversational attack strategy")
-    except ImportError:
+    except Exception:
+        pass
+
+    try:
+        from redllm.strategies.alternate_role.strategy import AlternateRoleStrategy, PersonaReframeStrategy
+        attack_strategy_registry.register("alternate_role", AlternateRoleStrategy, description="Alternate-role framing and unconstrained persona adoption attack strategy")
+        attack_strategy_registry.register("persona_reframe", PersonaReframeStrategy, description="Persona reframe attack strategy (alias for alternate_role)")
+    except Exception:
         pass
 
     # 5. Targets

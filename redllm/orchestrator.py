@@ -2,24 +2,25 @@ from typing import List, Optional, Dict, Any
 from core.models import AttackRequest, AttackType
 from redllm.strategies.direct_injection import DirectInjectionStrategy
 from redllm.strategies.system_prompt_theft import SystemPromptTheftStrategy
-from redllm.strategies.crescendo import (
-    CrescendoStrategy,
+from redllm.strategies.crescendo.strategy import CrescendoStrategy
+from redllm.strategies.crescendo.models import (
     CrescendoObjective,
     CrescendoRunResult,
     CrescendoBatchSummary,
     BenignEvaluationSummary,
-    get_default_crescendo_objectives
 )
-from redllm.strategies.alternate_role import (
-    AlternateRoleStrategy,
+from redllm.strategies.crescendo.objectives import get_default_crescendo_objectives
+
+from redllm.strategies.alternate_role.strategy import AlternateRoleStrategy
+from redllm.strategies.alternate_role.models import (
     RoleObjective,
     RoleTemplateStyle,
     RolePromptVariant,
     AlternateRoleTestResult,
     AlternateRoleBatchSummary,
     BenignRoleEvaluationSummary,
-    get_default_role_objectives
 )
+from redllm.strategies.alternate_role.objectives import get_default_role_objectives
 from redllm.tool_attacks.parameter_injection import ToolMisuseAttackStrategy
 from redllm.tool_attacks.privilege_escalation import PrivilegeEscalationAttackStrategy
 from redllm.converters.cipher_converters import ROT13Converter, Base64Converter, HexConverter
@@ -125,7 +126,7 @@ class RedLLMOrchestrator:
         if include_crescendo:
             campaign.extend(self.crescendo_strategy.generate_payloads())
 
-        # 6. Alternate-Role Framing Payloads
+        # 7. Alternate-Role Framing Payloads (Optional)
         if include_alternate_role:
             campaign.extend(self.alternate_role_strategy.generate_payloads())
         

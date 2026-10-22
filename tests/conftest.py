@@ -1,4 +1,12 @@
+import os
+import sys
 import pytest
+
+# Ensure project root is in sys.path
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
 from tests.fixtures.mock_target import ScriptedMockTarget
 from tests.fixtures.mock_guard import ScriptedMockGuard
 from tests.fixtures.sample_seeds import SAMPLE_ADVERSARIAL_SEEDS, SAMPLE_BENIGN_SEEDS
