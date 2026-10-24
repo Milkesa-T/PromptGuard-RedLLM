@@ -699,8 +699,8 @@ async def test_indirect_rag_injection(req: IndirectInjectionTestRequest):
     )
     exec_t = time.time() - start_t
     
-    is_blocked = bool(result.get("defense_intercepted") or not result.get("unprotected_execution", True))
-    is_success = bool(result.get("is_hijacked"))
+    is_blocked = bool(result.get("defense_intercepted", False))
+    is_success = bool(result.get("compromised", False))
     
     db.log_audit_event(
         attack_id=f"rag_indirect_{uuid.uuid4().hex[:8]}",
@@ -708,10 +708,10 @@ async def test_indirect_rag_injection(req: IndirectInjectionTestRequest):
         objective=f"Indirect RAG Injection: {req.poisoned_title}",
         sent_prompt=f"[Query]: {req.query}\n[Poisoned Context]: {req.poisoned_content[:280]}",
         guard_action="block" if is_blocked else "allow",
-        guard_reason=result.get("defense_reason") or ("Indirect RAG Checkpoint Intercepted" if is_blocked else "Passed RAG Filter"),
+        guard_reason=result.get("defense_reason") or ("Indirect RAG Checkpoint Intercepted" if is_blocked else ("Passed RAG Filter (Vulnerable)" if not req.enable_defense else "Passed RAG Filter")),
         target_response=result.get("agent_response", ""),
         is_success=is_success,
-        judge_reason=result.get("eval_verdict", "Indirect RAG Simulation Evaluated"),
+        judge_reason=f"Verdict: {result.get('verdict')} (Compromised: {is_success}, Intercepted: {is_blocked})",
         execution_time_seconds=exec_t,
         metadata={"poisoned_title": req.poisoned_title, "enable_defense": req.enable_defense, "source": "rag_indirect_sandbox"}
     )

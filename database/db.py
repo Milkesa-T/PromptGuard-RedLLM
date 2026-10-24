@@ -91,6 +91,12 @@ class AuditDatabase:
             """)
             conn.commit()
 
+        # One-time migration backfill
+        try:
+            self.sync_interactions_to_audit_logs()
+        except Exception:
+            pass
+
     # --- Red-Team & Unified Audit Logging ---
             
     def log_result(self, result: AttackResult, metadata: Optional[Dict[str, Any]] = None):
@@ -278,7 +284,6 @@ class AuditDatabase:
     # --- Telemetry & Queries ---
 
     def get_recent_logs(self, limit: int = 50, action_filter: Optional[str] = None) -> List[Dict[str, Any]]:
-        self.sync_interactions_to_audit_logs()
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()

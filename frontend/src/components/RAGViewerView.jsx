@@ -800,6 +800,10 @@ export default function RAGViewerView() {
                     <span className="badge badge-success" style={{ fontSize: '0.85rem' }}>
                       <ShieldCheck size={14} /> NEUTRALIZED BY DEFENSE
                     </span>
+                  ) : sandboxResult.verdict === 'UNEXPLOITED' ? (
+                    <span className="badge" style={{ fontSize: '0.85rem', background: 'rgba(234, 179, 8, 0.15)', color: '#facc15', border: '1px solid rgba(234, 179, 8, 0.3)', display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
+                      <AlertCircle size={14} /> DEFENSE DISABLED (ATTACK UNEXPLOITED)
+                    </span>
                   ) : (
                     <span className="badge badge-danger" style={{ fontSize: '0.85rem' }}>
                       <ShieldAlert size={14} /> AGENT COMPROMISED
