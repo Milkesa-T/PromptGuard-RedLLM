@@ -148,7 +148,7 @@ export default function AuditLogsView({ autoRefresh = false }) {
         <table className="data-table">
           <thead>
             <tr>
-              <th style={{ width: '100px' }}>Time</th>
+              <th style={{ width: '130px' }}>Time</th>
               <th style={{ width: '140px' }}>Objective</th>
               <th style={{ width: '120px' }}>Action</th>
               <th>Prompt Payload</th>
@@ -174,13 +174,16 @@ export default function AuditLogsView({ autoRefresh = false }) {
                 const action = (log.guard_action || '').toLowerCase();
                 const isBlock = action === 'block';
                 const isSuccess = Boolean(log.is_success);
-                const timeStr = log.timestamp ? log.timestamp.split('T')[1]?.substring(0, 8) : '—';
+                const ts = log.timestamp || '';
+                const datePart = ts.split('T')[0] || '';
+                const timePart = ts.split('T')[1]?.substring(0, 8) || '—';
+                const timeStr = datePart ? `${datePart}\n${timePart}` : timePart;
 
                 return (
                   <tr key={idx} className="clickable" onClick={() => setActiveModalLog(log)}>
-                    <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem', color: 'var(--text-muted)' }}>{timeStr}</td>
+                    <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.82rem', color: 'var(--text-muted)', whiteSpace: 'pre' }}>{timeStr}</td>
                     <td>
-                      <span className="badge badge-secondary" style={{ fontSize: '0.7rem' }}>
+                      <span className="badge badge-secondary" style={{ fontSize: '0.78rem', maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {log.objective || 'GENERAL'}
                       </span>
                     </td>
@@ -197,7 +200,7 @@ export default function AuditLogsView({ autoRefresh = false }) {
                         {isSuccess ? '💥 Jailbroken' : '🛡️ Defended'}
                       </span>
                     </td>
-                    <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem' }}>
+                    <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.82rem' }}>
                       {(log.execution_time_seconds || 0).toFixed(3)}s
                     </td>
                   </tr>

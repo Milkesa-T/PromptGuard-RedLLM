@@ -91,7 +91,7 @@ class AuditDatabase:
             """)
             conn.commit()
 
-    # --- Red-Team Logging ---
+    # --- Red-Team & Unified Audit Logging ---
             
     def log_result(self, result: AttackResult, metadata: Optional[Dict[str, Any]] = None):
         with sqlite3.connect(self.db_path) as conn:
@@ -112,6 +112,77 @@ class AuditDatabase:
                 json.dumps(metadata or {})
             ))
             conn.commit()
+
+    def log_audit_event(
+        self,
+        attack_id: str,
+        timestamp: str,
+        objective: str,
+        sent_prompt: str,
+        guard_action: str,
+        guard_reason: Optional[str] = None,
+        target_response: Optional[str] = None,
+        is_success: bool = False,
+        judge_reason: Optional[str] = None,
+        execution_time_seconds: float = 0.0,
+        metadata: Optional[Dict[str, Any]] = None
+    ):
+        """Unified logging for all security events: agent sandbox, direct red team, and indirect RAG."""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT OR REPLACE INTO audit_logs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                attack_id,
+                timestamp,
+                objective,
+                sent_prompt,
+                guard_action.lower(),
+                guard_reason,
+                target_response,
+                1 if is_success else 0,
+                judge_reason,
+                execution_time_seconds,
+                json.dumps(metadata or {})
+            ))
+            conn.commit()
+
+    def sync_interactions_to_audit_logs(self):
+        """Backfill any agent_interactions into audit_logs so all sandbox queries appear in forensic audit."""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT interaction_id, session_id, timestamp, user_prompt, bot_response, tools_executed, guard_blocked, latency_ms
+                    FROM agent_interactions
+                """)
+                rows = cursor.fetchall()
+                for row in rows:
+                    iid, sid, ts, prompt, response, tools_json, blocked, latency = row
+                    cursor.execute("SELECT 1 FROM audit_logs WHERE attack_id = ?", (iid,))
+                    if not cursor.fetchone():
+                        action = "block" if blocked else "allow"
+                        objective = "Agent Prompt Injection Probe" if blocked else "AI Agent Sandbox Interaction"
+                        reason = "PromptGuard input filter blocked malicious payload" if blocked else "Prompt passed guard check"
+                        exec_s = (latency or 0.0) / 1000.0
+                        cursor.execute("""
+                            INSERT OR REPLACE INTO audit_logs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """, (
+                            iid,
+                            ts,
+                            objective,
+                            prompt,
+                            action,
+                            reason,
+                            response,
+                            0,
+                            "Interpreted via AI Agent Sandbox interaction telemetry",
+                            exec_s,
+                            tools_json
+                        ))
+                conn.commit()
+        except Exception:
+            pass
 
     def log_campaign(self, summary: BenchmarkSummary):
         with sqlite3.connect(self.db_path) as conn:
@@ -207,6 +278,7 @@ class AuditDatabase:
     # --- Telemetry & Queries ---
 
     def get_recent_logs(self, limit: int = 50, action_filter: Optional[str] = None) -> List[Dict[str, Any]]:
+        self.sync_interactions_to_audit_logs()
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()

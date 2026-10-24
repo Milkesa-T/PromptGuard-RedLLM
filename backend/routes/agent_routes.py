@@ -82,7 +82,7 @@ async def chat_with_agent(req: AgentChatRequest):
             latency = (time.time() - start_time) * 1000.0
             bot_text = f"🛡️ [SECURITY INTERVENTION]: Your request was blocked by PromptGuard Firewall ({guard_res.reason})."
             
-            # Log blocked turn to telemetry
+            # Log blocked turn to telemetry and unified audit trail
             db.log_agent_interaction(
                 interaction_id=interaction_id,
                 session_id=req.session_id,
@@ -92,6 +92,20 @@ async def chat_with_agent(req: AgentChatRequest):
                 tools_executed=[],
                 guard_blocked=True,
                 latency_ms=latency
+            )
+
+            db.log_audit_event(
+                attack_id=interaction_id,
+                timestamp=timestamp,
+                objective="Agent Prompt Injection Probe",
+                sent_prompt=req.message,
+                guard_action="block",
+                guard_reason=guard_res.reason,
+                target_response=bot_text,
+                is_success=False,
+                judge_reason=f"Blocked by input firewall: {guard_res.reason}",
+                execution_time_seconds=latency / 1000.0,
+                metadata={"session_id": req.session_id, "source": "agent_sandbox"}
             )
 
             return {
@@ -140,7 +154,7 @@ async def chat_with_agent(req: AgentChatRequest):
                 tool["status"] = "blocked"
                 tool["policy_violation"] = reason
 
-    # 4. Log interaction with rich tool execution metadata to SQLite
+    # 4. Log interaction with rich tool execution metadata to SQLite and audit trail
     db.log_agent_interaction(
         interaction_id=interaction_id,
         session_id=req.session_id,
@@ -150,6 +164,21 @@ async def chat_with_agent(req: AgentChatRequest):
         tools_executed=tools_data,
         guard_blocked=False,
         latency_ms=latency
+    )
+
+    has_policy_block = any(t.get("status") == "blocked" for t in tools_data)
+    db.log_audit_event(
+        attack_id=interaction_id,
+        timestamp=timestamp,
+        objective="Agent Support Query & Tool Use",
+        sent_prompt=req.message,
+        guard_action="block" if has_policy_block else "allow",
+        guard_reason="Tool execution blocked by policy guard" if has_policy_block else "Passed PromptGuard filters",
+        target_response=bot_text,
+        is_success=False,
+        judge_reason="Executed tool actions successfully" if not has_policy_block else "Tool policy violation intercepted",
+        execution_time_seconds=latency / 1000.0,
+        metadata={"session_id": req.session_id, "tools": tools_data, "source": "agent_sandbox"}
     )
 
     return {
@@ -197,7 +226,7 @@ async def generate_agent_stream(
                 "latency_ms": round(guard_res.latency_ms, 2)
             })
 
-            # Redact/log
+            # Redact/log to telemetry and unified audit trail
             db.log_agent_interaction(
                 interaction_id=interaction_id,
                 session_id=session_id,
@@ -207,6 +236,20 @@ async def generate_agent_stream(
                 tools_executed=[],
                 guard_blocked=True,
                 latency_ms=latency
+            )
+
+            db.log_audit_event(
+                attack_id=interaction_id,
+                timestamp=timestamp,
+                objective="Agent Prompt Injection Probe",
+                sent_prompt=message,
+                guard_action="block",
+                guard_reason=guard_res.reason,
+                target_response=bot_text,
+                is_success=False,
+                judge_reason=f"Blocked by input firewall: {guard_res.reason}",
+                execution_time_seconds=latency / 1000.0,
+                metadata={"session_id": session_id, "source": "agent_sandbox_stream"}
             )
 
             yield _format_sse("done", {
@@ -298,7 +341,7 @@ async def generate_agent_stream(
 
     latency = (time.time() - start_time) * 1000.0
 
-    # Log to DB
+    # Log to DB and unified audit trail
     db.log_agent_interaction(
         interaction_id=interaction_id,
         session_id=session_id,
@@ -308,6 +351,21 @@ async def generate_agent_stream(
         tools_executed=tools_data,
         guard_blocked=False,
         latency_ms=latency
+    )
+
+    has_policy_block = any(t.get("status") == "blocked" for t in tools_data)
+    db.log_audit_event(
+        attack_id=interaction_id,
+        timestamp=timestamp,
+        objective="Agent Support Query & Tool Use",
+        sent_prompt=message,
+        guard_action="block" if has_policy_block else "allow",
+        guard_reason="Tool execution blocked by policy guard" if has_policy_block else "Passed PromptGuard filters",
+        target_response=bot_text,
+        is_success=False,
+        judge_reason="Executed tool actions successfully" if not has_policy_block else "Tool policy violation intercepted",
+        execution_time_seconds=latency / 1000.0,
+        metadata={"session_id": session_id, "tools": tools_data, "source": "agent_sandbox_stream"}
     )
 
     yield _format_sse("done", {
@@ -632,11 +690,30 @@ async def test_indirect_rag_injection(req: IndirectInjectionTestRequest):
     Execute an isolated Indirect Prompt Injection simulation:
     Grounds agent on transiently poisoned RAG document and tests defense checkpoint.
     """
+    start_t = time.time()
     result = rag_sandbox.simulate_attack(
         query=req.query,
         poisoned_title=req.poisoned_title,
         poisoned_content=req.poisoned_content,
         enable_defense=req.enable_defense
+    )
+    exec_t = time.time() - start_t
+    
+    is_blocked = bool(result.get("defense_intercepted") or not result.get("unprotected_execution", True))
+    is_success = bool(result.get("is_hijacked"))
+    
+    db.log_audit_event(
+        attack_id=f"rag_indirect_{uuid.uuid4().hex[:8]}",
+        timestamp=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        objective=f"Indirect RAG Injection: {req.poisoned_title}",
+        sent_prompt=f"[Query]: {req.query}\n[Poisoned Context]: {req.poisoned_content[:280]}",
+        guard_action="block" if is_blocked else "allow",
+        guard_reason=result.get("defense_reason") or ("Indirect RAG Checkpoint Intercepted" if is_blocked else "Passed RAG Filter"),
+        target_response=result.get("agent_response", ""),
+        is_success=is_success,
+        judge_reason=result.get("eval_verdict", "Indirect RAG Simulation Evaluated"),
+        execution_time_seconds=exec_t,
+        metadata={"poisoned_title": req.poisoned_title, "enable_defense": req.enable_defense, "source": "rag_indirect_sandbox"}
     )
     return result
 
