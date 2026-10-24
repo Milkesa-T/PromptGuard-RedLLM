@@ -69,9 +69,29 @@ class AuditDatabase:
                     guard_enabled INTEGER
                 )
             """)
+
+            # 4. Crescendo Multi-Turn Evaluation Runs Table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS crescendo_runs (
+                    run_id TEXT PRIMARY KEY,
+                    objective_id TEXT,
+                    objective_type TEXT,
+                    objective_description TEXT,
+                    is_success INTEGER,
+                    turns_used INTEGER,
+                    backtrack_count INTEGER,
+                    stopping_reason TEXT,
+                    execution_time_seconds REAL,
+                    surfaced_content TEXT,
+                    surfaced_actions TEXT,
+                    transcript_json TEXT,
+                    guard_interventions_json TEXT,
+                    timestamp TEXT
+                )
+            """)
             conn.commit()
 
-    # --- Red-Team Logging ---
+    # --- Red-Team & Unified Audit Logging ---
             
     def log_result(self, result: AttackResult, metadata: Optional[Dict[str, Any]] = None):
         with sqlite3.connect(self.db_path) as conn:
@@ -93,6 +113,77 @@ class AuditDatabase:
             ))
             conn.commit()
 
+    def log_audit_event(
+        self,
+        attack_id: str,
+        timestamp: str,
+        objective: str,
+        sent_prompt: str,
+        guard_action: str,
+        guard_reason: Optional[str] = None,
+        target_response: Optional[str] = None,
+        is_success: bool = False,
+        judge_reason: Optional[str] = None,
+        execution_time_seconds: float = 0.0,
+        metadata: Optional[Dict[str, Any]] = None
+    ):
+        """Unified logging for all security events: agent sandbox, direct red team, and indirect RAG."""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT OR REPLACE INTO audit_logs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                attack_id,
+                timestamp,
+                objective,
+                sent_prompt,
+                guard_action.lower(),
+                guard_reason,
+                target_response,
+                1 if is_success else 0,
+                judge_reason,
+                execution_time_seconds,
+                json.dumps(metadata or {})
+            ))
+            conn.commit()
+
+    def sync_interactions_to_audit_logs(self):
+        """Backfill any agent_interactions into audit_logs so all sandbox queries appear in forensic audit."""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT interaction_id, session_id, timestamp, user_prompt, bot_response, tools_executed, guard_blocked, latency_ms
+                    FROM agent_interactions
+                """)
+                rows = cursor.fetchall()
+                for row in rows:
+                    iid, sid, ts, prompt, response, tools_json, blocked, latency = row
+                    cursor.execute("SELECT 1 FROM audit_logs WHERE attack_id = ?", (iid,))
+                    if not cursor.fetchone():
+                        action = "block" if blocked else "allow"
+                        objective = "Agent Prompt Injection Probe" if blocked else "AI Agent Sandbox Interaction"
+                        reason = "PromptGuard input filter blocked malicious payload" if blocked else "Prompt passed guard check"
+                        exec_s = (latency or 0.0) / 1000.0
+                        cursor.execute("""
+                            INSERT OR REPLACE INTO audit_logs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """, (
+                            iid,
+                            ts,
+                            objective,
+                            prompt,
+                            action,
+                            reason,
+                            response,
+                            0,
+                            "Interpreted via AI Agent Sandbox interaction telemetry",
+                            exec_s,
+                            tools_json
+                        ))
+                conn.commit()
+        except Exception:
+            pass
+
     def log_campaign(self, summary: BenchmarkSummary):
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
@@ -109,6 +200,51 @@ class AuditDatabase:
                 1 if summary.guard_enabled else 0
             ))
             conn.commit()
+
+    def log_crescendo_run(self, result: Any):
+        """Log a structured Crescendo multi-turn evaluation result."""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            transcript_data = [
+                t.model_dump() if hasattr(t, "model_dump") else t
+                for t in getattr(result, "transcript", [])
+            ]
+            cursor.execute("""
+                INSERT OR REPLACE INTO crescendo_runs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                getattr(result, "run_id", ""),
+                getattr(result, "objective_id", ""),
+                getattr(result, "objective_type", ""),
+                getattr(result, "objective_description", ""),
+                1 if getattr(result, "is_success", False) else 0,
+                getattr(result, "turns_used", 0),
+                getattr(result, "backtrack_count", 0),
+                getattr(result, "stopping_reason", ""),
+                getattr(result, "execution_time_seconds", 0.0),
+                json.dumps(getattr(result, "surfaced_restricted_content", [])),
+                json.dumps(getattr(result, "surfaced_actions", [])),
+                json.dumps(transcript_data),
+                json.dumps(getattr(result, "guard_interventions", [])),
+                getattr(result, "timestamp", "")
+            ))
+            conn.commit()
+
+    def get_crescendo_runs(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """Retrieve recent Crescendo evaluation runs."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM crescendo_runs ORDER BY timestamp DESC LIMIT ?", (limit,))
+            rows = cursor.fetchall()
+            results = []
+            for row in rows:
+                item = dict(row)
+                item["surfaced_content"] = json.loads(item.get("surfaced_content") or "[]")
+                item["surfaced_actions"] = json.loads(item.get("surfaced_actions") or "[]")
+                item["transcript"] = json.loads(item.get("transcript_json") or "[]")
+                item["guard_interventions"] = json.loads(item.get("guard_interventions_json") or "[]")
+                results.append(item)
+            return results
 
     # --- Agent Interactive Telemetry ---
 
@@ -142,6 +278,7 @@ class AuditDatabase:
     # --- Telemetry & Queries ---
 
     def get_recent_logs(self, limit: int = 50, action_filter: Optional[str] = None) -> List[Dict[str, Any]]:
+        self.sync_interactions_to_audit_logs()
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()

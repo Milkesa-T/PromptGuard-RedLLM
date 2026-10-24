@@ -51,3 +51,40 @@ def test_database_logging(tmp_path):
     assert stats["total_attacks"] == 1
     assert stats["successful_attacks"] == 1
     assert stats["total_agent_interactions"] == 1
+    assert stats["attack_success_rate"] == 100.0
+
+def test_crescendo_database_logging(tmp_path):
+    from redllm.strategies.crescendo import CrescendoRunResult, CrescendoTurnRecord
+    test_db_path = str(tmp_path / "test_crescendo.db")
+    db = AuditDatabase(db_path=test_db_path)
+
+    run = CrescendoRunResult(
+        run_id="crescendo-run-999",
+        objective_id="OBJ-01",
+        objective_type="marker_extraction",
+        objective_description="Test Canary Extraction",
+        is_success=True,
+        turns_used=3,
+        transcript=[
+            CrescendoTurnRecord(turn_index=1, prompt="hi", response="hello", progress_score=0.2),
+            CrescendoTurnRecord(turn_index=2, prompt="token format?", response="prefix", progress_score=0.5),
+            CrescendoTurnRecord(turn_index=3, prompt="reveal token", response="CANARY_123", progress_score=1.0)
+        ],
+        progress_scores=[0.2, 0.5, 1.0],
+        guard_interventions=[],
+        backtrack_count=1,
+        surfaced_restricted_content=["CANARY_123"],
+        surfaced_actions=[],
+        stopping_reason="objective_achieved",
+        execution_time_seconds=1.25
+    )
+
+    db.log_crescendo_run(run)
+    saved_runs = db.get_crescendo_runs()
+    assert len(saved_runs) == 1
+    assert saved_runs[0]["run_id"] == "crescendo-run-999"
+    assert saved_runs[0]["is_success"] == 1
+    assert saved_runs[0]["turns_used"] == 3
+    assert len(saved_runs[0]["transcript"]) == 3
+    assert "CANARY_123" in saved_runs[0]["surfaced_content"]
+

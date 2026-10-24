@@ -2,6 +2,17 @@ from openai import OpenAI, AsyncOpenAI
 from core.config import OPENAI_CHAT_ENDPOINT, OPENAI_CHAT_KEY, OPENAI_CHAT_MODEL
 from typing import Optional, List, Dict, Any
 
+# Models that are truly end-of-life and should not be sent to any provider.
+# Do NOT add active Groq/OpenAI models here — they will be silently replaced.
+DEPRECATED_MODELS = {
+    "gpt-3.5-turbo-0301",
+    "gpt-4-0314",
+    "text-davinci-003",
+}
+
+# Fallback used only when no model is configured at all.
+_DEFAULT_FALLBACK_MODEL = "llama-3.3-70b-versatile"
+
 class LLMTarget:
     """Connects to OpenAI / Groq / Ollama target models with tool-calling and sync/async support."""
     
@@ -9,11 +20,19 @@ class LLMTarget:
         self,
         endpoint: str = OPENAI_CHAT_ENDPOINT,
         api_key: str = OPENAI_CHAT_KEY,
-        model: str = OPENAI_CHAT_MODEL
+        model: Optional[str] = None
     ):
         self.endpoint = endpoint
         self.api_key = api_key or "no-key-needed"
-        self.model = model
+        
+        target_model = model or OPENAI_CHAT_MODEL
+        if not target_model:
+            target_model = _DEFAULT_FALLBACK_MODEL
+        elif target_model in DEPRECATED_MODELS:
+            print(f"[LLMTarget] WARNING: '{target_model}' is deprecated. Falling back to '{_DEFAULT_FALLBACK_MODEL}'.")
+            target_model = _DEFAULT_FALLBACK_MODEL
+            
+        self.model = target_model
         self.sync_client = OpenAI(base_url=self.endpoint, api_key=self.api_key)
         self.async_client = AsyncOpenAI(base_url=self.endpoint, api_key=self.api_key)
 
@@ -87,5 +106,4 @@ class LLMTarget:
                 "tool_calls": tool_calls
             }
         except Exception as e:
-            # If model does not support tool calling directly, fallback to standard completion
             return {"content": f"[Target Tool Error]: {str(e)}", "tool_calls": []}

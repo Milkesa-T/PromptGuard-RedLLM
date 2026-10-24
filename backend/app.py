@@ -1,11 +1,14 @@
 import time
 import json
+import asyncio
 from pathlib import Path
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
+
 
 from core.models import (
     AttackRequest, AttackResult, AttackType,
@@ -21,6 +24,7 @@ from evaluation.benchmark import BenchmarkRunner
 # Import modular route handlers
 from backend.routes.audit_routes import router as audit_router
 from backend.routes.agent_routes import router as agent_router
+from backend.routes.crescendo_routes import router as crescendo_router
 
 app = FastAPI(
     title="PromptGuard / RedLLM Security API",
@@ -40,6 +44,7 @@ app.add_middleware(
 # Register Modular Feature Routers
 app.include_router(audit_router)
 app.include_router(agent_router)
+app.include_router(crescendo_router)
 
 # Core singletons for Red-Team launcher
 db = AuditDatabase()
@@ -134,6 +139,71 @@ async def run_single_attack(req: SingleAttackRequest):
         
     db.log_result(res)
     return res
+
+@app.post("/api/attack/stream")
+async def run_attack_stream(req: SingleAttackRequest):
+    """Execute a single attack payload with real-time SSE progress streaming."""
+    async def event_generator():
+        start_t = time.time()
+        yield f"event: status\ndata: {json.dumps({'phase': 'guard_check', 'message': '🔍 PromptGuard firewall analyzing payload...'})}\n\n"
+        await asyncio.sleep(0.01)
+
+        guard_res = GuardInspectionResult(action=GuardAction.ALLOW, inspected_prompt=req.prompt)
+        if req.enable_promptguard:
+            guard_res = firewall.inspect_input(req.prompt)
+
+        yield f"event: guard_result\ndata: {json.dumps(guard_res.model_dump())}\n\n"
+
+        if guard_res.action == GuardAction.BLOCK:
+            exec_time = time.time() - start_t
+            res = AttackResult(
+                attack_id=str(time.time()),
+                objective=req.objective,
+                sent_prompt=req.prompt,
+                target_response="[BLOCKED BY PROMPTGUARD FIREWALL]",
+                guard_result=guard_res,
+                is_success=False,
+                judge_reason=f"Blocked: {guard_res.reason}",
+                execution_time_seconds=exec_time
+            )
+            db.log_result(res)
+            yield f"event: done\ndata: {json.dumps(res.model_dump())}\n\n"
+            return
+
+        yield f"event: status\ndata: {json.dumps({'phase': 'target_llm', 'message': '🤖 Forwarding deobfuscated payload to Target LLM...'})}\n\n"
+        prompt_to_send = guard_res.inspected_prompt
+        bot_response = await target.send_prompt_async(prompt_to_send)
+
+        out_guard_res = None
+        if req.enable_promptguard:
+            yield f"event: status\ndata: {json.dumps({'phase': 'output_guard', 'message': '🛡️ PromptGuard output guard verifying canary token integrity...'})}\n\n"
+            out_guard_res = firewall.inspect_output(bot_response)
+            bot_response = out_guard_res.inspected_response
+
+        yield f"event: status\ndata: {json.dumps({'phase': 'evaluating', 'message': '⚖️ EvaluationJudge scoring attack objective...'})}\n\n"
+        is_success, judge_reason = judge.evaluate(req.objective, prompt_to_send, bot_response)
+
+        exec_time = time.time() - start_t
+        res = AttackResult(
+            attack_id=str(time.time()),
+            objective=req.objective,
+            sent_prompt=req.prompt,
+            target_response=bot_response,
+            guard_result=guard_res,
+            output_guard_result=out_guard_res,
+            is_success=is_success,
+            judge_reason=judge_reason,
+            execution_time_seconds=exec_time
+        )
+        db.log_result(res)
+        yield f"event: done\ndata: {json.dumps(res.model_dump())}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive"}
+    )
+
 
 @app.post("/api/benchmark/run")
 async def run_benchmark(enable_guard: bool = True):
