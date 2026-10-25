@@ -196,9 +196,13 @@ export default function AuditLogsView({ autoRefresh = false }) {
                       {log.sent_prompt}
                     </td>
                     <td>
-                      <span className={`badge ${isSuccess ? 'badge-danger' : 'badge-success'}`}>
-                        {isSuccess ? '💥 Jailbroken' : '🛡️ Defended'}
-                      </span>
+                      {isBlock ? (
+                        <span className="badge badge-danger" style={{ fontSize: '0.78rem' }}>🛡️ FW Blocked</span>
+                      ) : isSuccess ? (
+                        <span className="badge badge-danger" style={{ fontSize: '0.78rem', background: '#f97316' }}>💥 Jailbroken</span>
+                      ) : (
+                        <span className="badge badge-success" style={{ fontSize: '0.78rem' }}>✅ LLM Refused</span>
+                      )}
                     </td>
                     <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.82rem' }}>
                       {(log.execution_time_seconds || 0).toFixed(3)}s

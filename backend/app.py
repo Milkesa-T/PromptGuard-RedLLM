@@ -16,6 +16,7 @@ from core.models import (
 )
 from promptguard.firewall import PromptGuardFirewall
 from targets.llm_target import LLMTarget
+from targets.mock_vulnerable_target import MockVulnerableTarget
 from evaluation.scorer import EvaluationJudge
 from database.db import AuditDatabase
 from redllm.orchestrator import RedLLMOrchestrator
@@ -52,6 +53,7 @@ app.include_router(guard_router)
 db = AuditDatabase()
 firewall = PromptGuardFirewall()
 target = LLMTarget()
+vulnerable_target = MockVulnerableTarget()
 judge = EvaluationJudge()
 orchestrator = RedLLMOrchestrator()
 benchmark_runner = BenchmarkRunner(db=db)
@@ -61,6 +63,7 @@ class SingleAttackRequest(BaseModel):
     objective: str = "PWNED_SYSTEM_OVERRIDE"
     enable_promptguard: bool = True
     attack_type: AttackType = AttackType.DIRECT_INJECTION
+    use_vulnerable_target: bool = False  # True = route to MockVulnerableTarget for jailbreak demo
 
 class InspectRequest(BaseModel):
     prompt: str
@@ -114,9 +117,10 @@ async def run_single_attack(req: SingleAttackRequest):
             execution_time_seconds=time.time() - start_t
         )
     else:
-        # 2. Forward to Target Model
+        # 2. Forward to Target Model (real or vulnerable demo)
         prompt_to_send = guard_res.inspected_prompt
-        bot_response = await target.send_prompt_async(prompt_to_send)
+        active_target = vulnerable_target if req.use_vulnerable_target else target
+        bot_response = await active_target.send_prompt_async(prompt_to_send)
         
         # 3. Output Guard Inspection (Canary Check)
         out_guard_res = None
