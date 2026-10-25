@@ -25,6 +25,7 @@ from evaluation.benchmark import BenchmarkRunner
 from backend.routes.audit_routes import router as audit_router
 from backend.routes.agent_routes import router as agent_router
 from backend.routes.crescendo_routes import router as crescendo_router
+from backend.routes.guard_routes import router as guard_router
 
 app = FastAPI(
     title="PromptGuard / RedLLM Security API",
@@ -45,6 +46,7 @@ app.add_middleware(
 app.include_router(audit_router)
 app.include_router(agent_router)
 app.include_router(crescendo_router)
+app.include_router(guard_router)
 
 # Core singletons for Red-Team launcher
 db = AuditDatabase()
@@ -215,6 +217,24 @@ async def run_benchmark(enable_guard: bool = True):
         campaign_name="FastAPI Triggered Benchmark"
     )
     return summary
+
+
+@app.post("/api/benchmark/held-out")
+async def run_held_out_benchmark(enable_guard: bool = True, max_attacks: int = 20, max_benign: int = 20):
+    """Run held-out dual-split benchmark calculating ASR, FPR, and per-category OWASP metrics."""
+    result = await benchmark_runner.run_held_out_benchmark(
+        enable_guard=enable_guard,
+        max_attacks=max_attacks,
+        max_benign=max_benign
+    )
+    return result
+
+
+@app.post("/api/benchmark/adaptive-rounds")
+async def run_adaptive_rounds_benchmark(max_samples: int = 15):
+    """Run closed-loop Before/After multi-round evaluation showing quantitative ASR reduction."""
+    result = await benchmark_runner.run_adaptive_rounds_benchmark(max_samples=max_samples)
+    return result
 
 # Mount static frontend directory (React build dist or fallback)
 frontend_dist = Path(__file__).resolve().parent.parent / "frontend" / "dist"

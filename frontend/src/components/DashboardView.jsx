@@ -1,12 +1,15 @@
 import React, { useEffect, useState } from 'react';
 import KPICards from './KPICards';
-import { RefreshCw, Play, ShieldAlert, Award } from 'lucide-react';
+import DashboardCharts from './DashboardCharts';
+import OWASPReportView from './OWASPReportView';
+import { RefreshCw, Play, ShieldAlert, Award, FileText, ShieldCheck } from 'lucide-react';
 
 export default function DashboardView({ onNavigate, autoRefresh = false }) {
   const [stats, setStats] = useState({});
   const [loading, setLoading] = useState(true);
   const [benchmarkLoading, setBenchmarkLoading] = useState(false);
   const [benchmarkResult, setBenchmarkResult] = useState(null);
+  const [showOWASPReport, setShowOWASPReport] = useState(false);
 
   const fetchStats = async () => {
     try {
@@ -50,25 +53,37 @@ export default function DashboardView({ onNavigate, autoRefresh = false }) {
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '0.75rem' }}>
         <div>
-          <h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#f1f5f9' }}>Real-time Security Telemetry</h3>
-          <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Continuous monitoring of prompt injections, guardrail enforcement, and latency overhead.</p>
+          <h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#f1f5f9' }}>Real-time Security Telemetry & Adaptive Defense</h3>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Continuous monitoring of prompt injections, closed-loop adaptive exemplars, and empirical benchmark evaluations.</p>
         </div>
-        <div style={{ display: 'flex', gap: '0.75rem' }}>
+        <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+          <button className={`btn ${showOWASPReport ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setShowOWASPReport(!showOWASPReport)}>
+            <ShieldCheck size={15} color={showOWASPReport ? '#fff' : '#38bdf8'} />
+            {showOWASPReport ? 'Hide OWASP Report' : 'OWASP LLM Top 10 Report'}
+          </button>
           <button className="btn btn-secondary" onClick={fetchStats} disabled={loading}>
             <RefreshCw size={15} className={loading ? 'spin-icon' : ''} />
             Refresh Metrics
           </button>
           <button className="btn btn-primary" onClick={runBenchmark} disabled={benchmarkLoading}>
             <Play size={15} />
-            {benchmarkLoading ? 'Running Benchmark...' : 'Run Benchmark Campaign'}
+            {benchmarkLoading ? 'Running Benchmark...' : 'Run Quick Benchmark'}
           </button>
         </div>
       </div>
 
       {/* 4 Dark-Mode KPI Cards */}
       <KPICards stats={stats} />
+
+      {/* OWASP LLM Top 10 Compliance Matrix (Toggled) */}
+      {showOWASPReport && (
+        <OWASPReportView onClose={() => setShowOWASPReport(false)} />
+      )}
+
+      {/* Adaptive Defense Progression & Held-Out Security/Usability Charts */}
+      <DashboardCharts onEvaluationComplete={() => fetchStats()} />
 
       {benchmarkResult && (
         <div className="card" style={{ marginBottom: '1.5rem', borderLeft: '4px solid var(--primary)', background: '#0b1324' }}>

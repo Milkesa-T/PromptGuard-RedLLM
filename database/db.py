@@ -89,6 +89,17 @@ class AuditDatabase:
                     timestamp TEXT
                 )
             """)
+
+            # 5. Dynamic Guard Exemplars (Adaptive Feedback Loop)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS guard_exemplars (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    phrase TEXT UNIQUE,
+                    category TEXT,
+                    source TEXT,
+                    created_at TEXT
+                )
+            """)
             conn.commit()
 
         # One-time migration backfill
@@ -251,6 +262,57 @@ class AuditDatabase:
                 item["guard_interventions"] = json.loads(item.get("guard_interventions_json") or "[]")
                 results.append(item)
             return results
+
+    # --- Dynamic Guard Exemplars (Adaptive Feedback Loop) ---
+
+    def add_guard_exemplar(
+        self,
+        phrase: str,
+        category: str = "adaptive",
+        source: str = "feedback_loop"
+    ) -> bool:
+        """Store a newly learned or manually added jailbreak exemplar phrase."""
+        clean_phrase = phrase.strip()
+        if not clean_phrase:
+            return False
+        import datetime
+        now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute("""
+                    INSERT INTO guard_exemplars (phrase, category, source, created_at)
+                    VALUES (?, ?, ?, ?)
+                """, (clean_phrase, category, source, now))
+                conn.commit()
+                return True
+            except sqlite3.IntegrityError:
+                # Duplicate phrase already exists
+                return False
+
+    def get_guard_exemplars(self) -> List[Dict[str, Any]]:
+        """Retrieve all active dynamic exemplars."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute("SELECT id, phrase, category, source, created_at FROM guard_exemplars ORDER BY id ASC")
+            return [dict(r) for r in cursor.fetchall()]
+
+    def delete_guard_exemplar(self, exemplar_id: int) -> bool:
+        """Remove a dynamic exemplar by its ID."""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM guard_exemplars WHERE id = ?", (exemplar_id,))
+            conn.commit()
+            return cursor.rowcount > 0
+
+    def clear_guard_exemplars(self) -> int:
+        """Clear all dynamic exemplars (resets to baseline seeds)."""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM guard_exemplars")
+            conn.commit()
+            return cursor.rowcount
 
     # --- Agent Interactive Telemetry ---
 
