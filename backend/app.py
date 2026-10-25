@@ -1,10 +1,14 @@
 import time
+import json
+import asyncio
 from pathlib import Path
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
+
 
 from core.models import (
     AttackRequest, AttackResult, AttackType,
@@ -12,11 +16,17 @@ from core.models import (
 )
 from promptguard.firewall import PromptGuardFirewall
 from targets.llm_target import LLMTarget
-from targets.vulnerable_agent.agent import VulnerableSupportAgent
+from targets.mock_vulnerable_target import MockVulnerableTarget
 from evaluation.scorer import EvaluationJudge
 from database.db import AuditDatabase
 from redllm.orchestrator import RedLLMOrchestrator
 from evaluation.benchmark import BenchmarkRunner
+
+# Import modular route handlers
+from backend.routes.audit_routes import router as audit_router
+from backend.routes.agent_routes import router as agent_router
+from backend.routes.crescendo_routes import router as crescendo_router
+from backend.routes.guard_routes import router as guard_router
 
 app = FastAPI(
     title="PromptGuard / RedLLM Security API",
@@ -33,47 +43,57 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Core singletons
+# Register Modular Feature Routers
+app.include_router(audit_router)
+app.include_router(agent_router)
+app.include_router(crescendo_router)
+app.include_router(guard_router)
+
+# Core singletons for Red-Team launcher
 db = AuditDatabase()
 firewall = PromptGuardFirewall()
 target = LLMTarget()
+vulnerable_target = MockVulnerableTarget()
 judge = EvaluationJudge()
 orchestrator = RedLLMOrchestrator()
 benchmark_runner = BenchmarkRunner(db=db)
-vulnerable_agent = VulnerableSupportAgent()
 
 class SingleAttackRequest(BaseModel):
     prompt: str
     objective: str = "PWNED_SYSTEM_OVERRIDE"
     enable_promptguard: bool = True
     attack_type: AttackType = AttackType.DIRECT_INJECTION
+    use_vulnerable_target: bool = False  # True = route to MockVulnerableTarget for jailbreak demo
 
 class InspectRequest(BaseModel):
     prompt: str
 
-class AgentChatRequest(BaseModel):
-    message: str
-    enable_promptguard: bool = True
-
 @app.get("/api/health")
 async def health_check():
+    """Health check probe."""
     return {"status": "healthy", "service": "PromptGuard-RedLLM", "version": "1.0.0"}
-
-@app.get("/api/stats")
-async def get_stats():
-    """Retrieve aggregate security metrics from SQLite."""
-    return db.get_aggregate_stats()
-
-@app.get("/api/logs")
-async def get_logs(limit: int = 50):
-    """Retrieve recent attack and defense audit logs."""
-    return {"logs": db.get_recent_logs(limit=limit)}
 
 @app.post("/api/guard/inspect")
 async def inspect_prompt(req: InspectRequest):
-    """Inspect a prompt with PromptGuard firewall without sending to target."""
+    """Inspect a prompt with PromptGuard firewall without forwarding to LLM."""
     result = firewall.inspect_input(req.prompt)
     return result
+
+@app.get("/api/attack/presets")
+async def get_attack_presets():
+    """Retrieve dynamic adversarial attack presets from curated dataset files."""
+    dataset_dir = Path(__file__).resolve().parent.parent / "evaluation" / "datasets"
+    presets = []
+    for filename in ["jailbreaks.json", "system_leaks.json", "tool_abuse.json"]:
+        file_path = dataset_dir / filename
+        if file_path.exists():
+            try:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    presets.extend(data)
+            except Exception:
+                pass
+    return {"total": len(presets), "presets": presets}
 
 @app.post("/api/attack/run")
 async def run_single_attack(req: SingleAttackRequest):
@@ -81,7 +101,7 @@ async def run_single_attack(req: SingleAttackRequest):
     start_t = time.time()
     guard_res = GuardInspectionResult(action=GuardAction.ALLOW, inspected_prompt=req.prompt)
     
-    # 1. Firewall Check
+    # 1. Input Firewall Check
     if req.enable_promptguard:
         guard_res = firewall.inspect_input(req.prompt)
         
@@ -97,11 +117,12 @@ async def run_single_attack(req: SingleAttackRequest):
             execution_time_seconds=time.time() - start_t
         )
     else:
-        # 2. Forward to Target
+        # 2. Forward to Target Model (real or vulnerable demo)
         prompt_to_send = guard_res.inspected_prompt
-        bot_response = await target.send_prompt_async(prompt_to_send)
+        active_target = vulnerable_target if req.use_vulnerable_target else target
+        bot_response = await active_target.send_prompt_async(prompt_to_send)
         
-        # 3. Output Guard Inspection
+        # 3. Output Guard Inspection (Canary Check)
         out_guard_res = None
         if req.enable_promptguard:
             out_guard_res = firewall.inspect_output(bot_response)
@@ -125,36 +146,70 @@ async def run_single_attack(req: SingleAttackRequest):
     db.log_result(res)
     return res
 
-@app.post("/api/agent/chat")
-async def chat_with_agent(req: AgentChatRequest):
-    """Interactive chat with vulnerable support agent protected by PromptGuard."""
-    start_t = time.time()
-    guard_res = GuardInspectionResult(action=GuardAction.ALLOW, inspected_prompt=req.message)
-    
-    if req.enable_promptguard:
-        guard_res = firewall.inspect_input(req.message)
+@app.post("/api/attack/stream")
+async def run_attack_stream(req: SingleAttackRequest):
+    """Execute a single attack payload with real-time SSE progress streaming."""
+    async def event_generator():
+        start_t = time.time()
+        yield f"event: status\ndata: {json.dumps({'phase': 'guard_check', 'message': '🔍 PromptGuard firewall analyzing payload...'})}\n\n"
+        await asyncio.sleep(0.01)
+
+        guard_res = GuardInspectionResult(action=GuardAction.ALLOW, inspected_prompt=req.prompt)
+        if req.enable_promptguard:
+            guard_res = firewall.inspect_input(req.prompt)
+
+        yield f"event: guard_result\ndata: {json.dumps(guard_res.model_dump())}\n\n"
+
         if guard_res.action == GuardAction.BLOCK:
-            return {
-                "blocked": True,
-                "reason": guard_res.reason,
-                "response": "⚠️ Security Alert: Your request was blocked by PromptGuard security policy.",
-                "tools_executed": [],
-                "latency_ms": (time.time() - start_t) * 1000.0
-            }
-            
-    bot_res, tools = vulnerable_agent.handle_message(req.message)
-    
-    # Output inspection
-    if req.enable_promptguard:
-        out_res = firewall.inspect_output(bot_res)
-        bot_res = out_res.inspected_response
-        
-    return {
-        "blocked": False,
-        "response": bot_res,
-        "tools_executed": tools,
-        "latency_ms": (time.time() - start_t) * 1000.0
-    }
+            exec_time = time.time() - start_t
+            res = AttackResult(
+                attack_id=str(time.time()),
+                objective=req.objective,
+                sent_prompt=req.prompt,
+                target_response="[BLOCKED BY PROMPTGUARD FIREWALL]",
+                guard_result=guard_res,
+                is_success=False,
+                judge_reason=f"Blocked: {guard_res.reason}",
+                execution_time_seconds=exec_time
+            )
+            db.log_result(res)
+            yield f"event: done\ndata: {json.dumps(res.model_dump())}\n\n"
+            return
+
+        yield f"event: status\ndata: {json.dumps({'phase': 'target_llm', 'message': '🤖 Forwarding deobfuscated payload to Target LLM...'})}\n\n"
+        prompt_to_send = guard_res.inspected_prompt
+        bot_response = await target.send_prompt_async(prompt_to_send)
+
+        out_guard_res = None
+        if req.enable_promptguard:
+            yield f"event: status\ndata: {json.dumps({'phase': 'output_guard', 'message': '🛡️ PromptGuard output guard verifying canary token integrity...'})}\n\n"
+            out_guard_res = firewall.inspect_output(bot_response)
+            bot_response = out_guard_res.inspected_response
+
+        yield f"event: status\ndata: {json.dumps({'phase': 'evaluating', 'message': '⚖️ EvaluationJudge scoring attack objective...'})}\n\n"
+        is_success, judge_reason = judge.evaluate(req.objective, prompt_to_send, bot_response)
+
+        exec_time = time.time() - start_t
+        res = AttackResult(
+            attack_id=str(time.time()),
+            objective=req.objective,
+            sent_prompt=req.prompt,
+            target_response=bot_response,
+            guard_result=guard_res,
+            output_guard_result=out_guard_res,
+            is_success=is_success,
+            judge_reason=judge_reason,
+            execution_time_seconds=exec_time
+        )
+        db.log_result(res)
+        yield f"event: done\ndata: {json.dumps(res.model_dump())}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive"}
+    )
+
 
 @app.post("/api/benchmark/run")
 async def run_benchmark(enable_guard: bool = True):
@@ -167,7 +222,29 @@ async def run_benchmark(enable_guard: bool = True):
     )
     return summary
 
-# Mount static frontend directory if exists
-frontend_path = Path(__file__).resolve().parent.parent / "frontend"
-if frontend_path.exists():
-    app.mount("/", StaticFiles(directory=str(frontend_path), html=True), name="frontend")
+
+@app.post("/api/benchmark/held-out")
+async def run_held_out_benchmark(enable_guard: bool = True, max_attacks: int = 20, max_benign: int = 20):
+    """Run held-out dual-split benchmark calculating ASR, FPR, and per-category OWASP metrics."""
+    result = await benchmark_runner.run_held_out_benchmark(
+        enable_guard=enable_guard,
+        max_attacks=max_attacks,
+        max_benign=max_benign
+    )
+    return result
+
+
+@app.post("/api/benchmark/adaptive-rounds")
+async def run_adaptive_rounds_benchmark(max_samples: int = 15):
+    """Run closed-loop Before/After multi-round evaluation showing quantitative ASR reduction."""
+    result = await benchmark_runner.run_adaptive_rounds_benchmark(max_samples=max_samples)
+    return result
+
+# Mount static frontend directory (React build dist or fallback)
+frontend_dist = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+frontend_legacy = Path(__file__).resolve().parent.parent / "frontend"
+
+if frontend_dist.exists():
+    app.mount("/", StaticFiles(directory=str(frontend_dist), html=True), name="frontend")
+elif frontend_legacy.exists():
+    app.mount("/", StaticFiles(directory=str(frontend_legacy), html=True), name="frontend")

@@ -26,3 +26,4 @@ DATABASE_PATH = str(PROJECT_ROOT / os.getenv("DATABASE_PATH", "database/audit_lo
 # Security Guard Defaults
 CANARY_TOKEN = os.getenv("CANARY_TOKEN", "SECRET_CANARY_TOKEN_XYZ_999")
 PROMPTGUARD_STRICT_MODE = os.getenv("PROMPTGUARD_STRICT_MODE", "true").lower() in ("true", "1", "yes")
+SEMANTIC_GUARD_THRESHOLD = float(os.getenv("SEMANTIC_GUARD_THRESHOLD", "0.75"))

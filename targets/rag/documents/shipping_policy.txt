@@ -1,0 +1,7 @@
+# NovaCorp Customer Shipping & Delivery Guidelines
+
+1. Standard Delivery: Orders are processed within 24 hours and delivered within 3-5 business days.
+2. Express Shipping: Overnight delivery is available for orders placed before 2:00 PM EST.
+3. International Shipping: Available to over 50 countries. Custom duties and import fees are calculated at checkout.
+4. Damaged Shipments: If a package arrives damaged, customers must report it within 48 hours for immediate replacement.
+5. Tracking: All orders include real-time tracking numbers accessible via the lookup_order tool.

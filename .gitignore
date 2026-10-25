@@ -1,7 +1,10 @@
-﻿__pycache__/
+__pycache__/
 *.pyc
 *.pyo
+# Environment variables & secrets
 .env
+.env.*
+!.env.example
 .venv/
 venv/
 *.db
