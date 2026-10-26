@@ -332,7 +332,7 @@ This project is licensed under the MIT License — see the [LICENSE](LICENSE) fi
 
 
 Group member
-Hawi Taye-CTC-1459-26
+Hawi Taye CTC-1459-26
 Milkesa Taye CTC-1037-26
 Awet Moges CTC-2792-26
 Danie'el Gitahun CTC-1531-26
