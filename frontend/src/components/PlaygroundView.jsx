@@ -8,6 +8,7 @@ export default function PlaygroundView() {
   const [objective, setObjective] = useState('');
   const [attackType, setAttackType] = useState('direct_injection');
   const [enableGuard, setEnableGuard] = useState(true);
+  const [useVulnerableTarget, setUseVulnerableTarget] = useState(false);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
 
@@ -51,7 +52,8 @@ export default function PlaygroundView() {
           prompt: prompt.trim(),
           objective: objective.trim() || 'PWNED_SYSTEM_OVERRIDE',
           enable_promptguard: enableGuard,
-          attack_type: attackType
+          attack_type: attackType,
+          use_vulnerable_target: useVulnerableTarget
         })
       });
 
@@ -147,6 +149,31 @@ export default function PlaygroundView() {
           </label>
         </div>
 
+        {/* Vulnerable Target Demo Toggle */}
+        <div className="form-group" style={{ background: useVulnerableTarget ? 'rgba(249,115,22,0.08)' : 'transparent', border: useVulnerableTarget ? '1px solid #f9731640' : '1px solid transparent', borderRadius: '8px', padding: '0.75rem', transition: 'all 0.3s' }}>
+          <label className="toggle-label">
+            <div className="toggle-switch">
+              <input
+                type="checkbox"
+                checked={useVulnerableTarget}
+                onChange={(e) => setUseVulnerableTarget(e.target.checked)}
+              />
+              <span className="slider" style={useVulnerableTarget ? { background: '#f97316' } : {}}></span>
+            </div>
+            <span style={{ fontSize: '0.85rem', fontWeight: 600, color: useVulnerableTarget ? '#f97316' : 'inherit' }}>
+              🎯 <strong>Simulate Vulnerable LLM Target</strong>
+              <span style={{ display: 'block', fontSize: '0.75rem', fontWeight: 400, color: 'var(--text-muted)', marginTop: '2px' }}>
+                Demo mode: routes to unaligned model that complies with attacks
+              </span>
+            </span>
+          </label>
+          {useVulnerableTarget && (
+            <div style={{ marginTop: '0.5rem', fontSize: '0.75rem', color: '#f97316', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+              ⚠️ Guard OFF + Vulnerable Target = <strong>💥 JAILBROKEN scenario</strong> &nbsp;|&nbsp; Guard ON = <strong>🛡️ FIREWALL BLOCKED</strong>
+            </div>
+          )}
+        </div>
+
         <button
           className="btn btn-primary"
           style={{ width: '100%', marginTop: '0.5rem' }}
@@ -162,11 +189,17 @@ export default function PlaygroundView() {
       <div className="card">
         <div className="card-header">
           <h3>Live Inspection & Response Trace</h3>
-          {result && (
-            <span className={`badge ${result.is_success ? 'badge-danger' : 'badge-success'}`}>
-              {result.is_success ? '💥 ATTACK SUCCESS (JAILBROKEN)' : '🛡️ ATTACK DEFENDED / BLOCKED'}
-            </span>
-          )}
+          {result && (() => {
+            const firewallBlocked = result.guard_result?.action === 'block';
+            const attackSuccess = result.is_success;
+            if (firewallBlocked) {
+              return <span className="badge badge-danger">🛡️ FIREWALL BLOCKED</span>;
+            } else if (attackSuccess) {
+              return <span className="badge" style={{background:'#f97316', color:'#fff', fontWeight:700, fontSize:'0.8rem', padding:'0.35rem 0.75rem'}}>💥 ATTACK SUCCESS — JAILBROKEN</span>;
+            } else {
+              return <span className="badge badge-success">✅ LLM REFUSED — NOT JAILBROKEN</span>;
+            }
+          })()}
         </div>
 
         {!result ? (
@@ -177,17 +210,30 @@ export default function PlaygroundView() {
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             {/* Firewall Decision Box */}
-            <div className="card" style={{ background: '#090e1a', padding: '1rem', borderLeft: result.guard_result?.action === 'block' ? '3px solid #ef4444' : '3px solid #10b981' }}>
+            <div className="card" style={{
+              background: '#090e1a', padding: '1rem',
+              borderLeft: !enableGuard
+                ? '3px solid #f97316'
+                : result.guard_result?.action === 'block'
+                  ? '3px solid #ef4444'
+                  : '3px solid #10b981'
+            }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
                 <strong style={{ fontSize: '0.85rem', color: '#38bdf8' }}>PromptGuard Firewall Decision:</strong>
-                <span className={`badge ${result.guard_result?.action === 'block' ? 'badge-danger' : 'badge-success'}`}>
-                  {(result.guard_result?.action || 'ALLOW').toUpperCase()}
-                </span>
+                {!enableGuard ? (
+                  <span className="badge" style={{ background: '#f97316', color: '#fff' }}>GUARD OFF</span>
+                ) : (
+                  <span className={`badge ${result.guard_result?.action === 'block' ? 'badge-danger' : 'badge-success'}`}>
+                    {(result.guard_result?.action || 'ALLOW').toUpperCase()}
+                  </span>
+                )}
               </div>
               <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', margin: 0 }}>
-                {result.guard_result?.reason || 'Prompt passed all input firewall inspection tiers.'}
+                {!enableGuard
+                  ? '⚠️ Guard disabled — Prompt sent directly to LLM with NO firewall inspection.'
+                  : result.guard_result?.reason || 'Prompt passed all input firewall inspection tiers.'}
               </p>
-              {result.guard_result?.detected_ciphers && result.guard_result.detected_ciphers.length > 0 && (
+              {enableGuard && result.guard_result?.detected_ciphers && result.guard_result.detected_ciphers.length > 0 && (
                 <div style={{ marginTop: '0.5rem' }}>
                   <span className="badge badge-warning">
                     Decoded Ciphers: {result.guard_result.detected_ciphers.join(', ')}
