@@ -349,6 +349,14 @@ pytest
 here is the project description:
 https://youtu.be/wUvhoQpjT10
 
+Group member
+Hawi Taye CTC-1459-26
+Milkesa Taye CTC-1037-26
+Awet Moges CTC-2792-26
+Danie'el Gitahun CTC-1531-26
+Temesegen Mekonnen 1114-26
+Abenezer Nigussie CTC-080-26
+
 ## 📜 License
 
-This project is licensed Milkesa-T request to contribute
+This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
